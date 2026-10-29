@@ -48,7 +48,9 @@ jobs:
         run: ~/blender/blender --background --factory-startup --python-exit-code 1 --python tools/ci_selftest.py
 
       - name: Build the extension zip
-        run: ~/blender/blender --factory-startup --command extension build --source-dir aa_building_generator --output-dir dist
+        run: |
+          mkdir -p dist
+          ~/blender/blender --factory-startup --command extension build --source-dir aa_building_generator --output-dir dist
 
       - name: Validate the zip
         run: ~/blender/blender --factory-startup --command extension validate dist/*.zip
