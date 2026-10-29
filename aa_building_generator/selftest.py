@@ -194,6 +194,49 @@ def _checks(plan, kit, opts):
     return out
 
 
+def _run_cases(sc, cases, results, errors):
+    """Build every case in the test scene (the context scene while this runs)."""
+    bpy.ops.aab.sample_kit()
+    kit_col = sc.aa_build.kit
+    pil = _add_pilasters(kit_col)
+    extras = _add_extras(kit_col)
+    for name, shape, w, d, opts in cases:
+        try:
+            for c in pil:
+                c.aa_module.weight = 1.0 if opts.get("_pilasters") else 0.0
+            for c in extras:
+                c.aa_module.weight = 1.0 if c.name.split(".")[0] in opts.get("_extras", ()) else 0.0
+            for c in kit_col.children:
+                if c.name.startswith("Shutter_"):
+                    c.aa_module.weight = 0.0 if opts.get("_no_kit_shutter") else 1.0
+                elif c.name.startswith(("Window_Broken", "Rubble_")):
+                    c.aa_module.weight = 0.0 if opts.get("_no_kit_damage") else 1.0
+            bpy.ops.aab.add_building(shape=shape, width=w, depth=d, rigid=bool(opts.get("rigid")))
+            o = bpy.context.view_layer.objects.active
+            o.location.x = 40.0 * len(results)
+            s = o.aa_building
+            s.seed = 1234
+            for k, v in (NEW_DEFAULTS if any(name == c[0] for c in CASES_14) else LEGACY).items():
+                setattr(s, k, v)
+            for k, v in opts.items():
+                if k in POINTERS:
+                    setattr(s, k, _module(kit_col, v))
+                elif not k.startswith("_"):
+                    setattr(s, k, v)
+            for seg in opts.get("_segments", ()):
+                g = s.segments.add()
+                for k, v in seg.items():
+                    setattr(g, k, _module(kit_col, v) if k in SEG_POINTERS else v)
+            kit = get_kit(kit_col)
+            plan = Plan(o, s, kit).run()
+            rebuild(o, force=True)
+            results[name] = _signature(plan, kit)
+            results[name]["status"] = s.status
+            errors += [f"{name}: {e}" for e in _checks(plan, kit, opts)]
+        except Exception:
+            errors.append(f"{name}: {traceback.format_exc().strip().splitlines()[-1]}")
+
+
 def run_self_test(update=False, cases=None):
     win = bpy.context.window
     keep = win.scene if win else None
@@ -201,48 +244,12 @@ def run_self_test(update=False, cases=None):
     results, errors = {}, []
     try:
         sc = bpy.data.scenes.new("AAB Self-Test")
-        win.scene = sc
-        with bpy.context.temp_override(window=win, scene=sc):
-            bpy.ops.aab.sample_kit()
-        kit_col = sc.aa_build.kit
-        pil = _add_pilasters(kit_col)
-        extras = _add_extras(kit_col)
-        for name, shape, w, d, opts in (cases or CASES):
-            try:
-                for c in pil:
-                    c.aa_module.weight = 1.0 if opts.get("_pilasters") else 0.0
-                for c in extras:
-                    c.aa_module.weight = 1.0 if c.name.split(".")[0] in opts.get("_extras", ()) else 0.0
-                for c in kit_col.children:
-                    if c.name.startswith("Shutter_"):
-                        c.aa_module.weight = 0.0 if opts.get("_no_kit_shutter") else 1.0
-                    elif c.name.startswith(("Window_Broken", "Rubble_")):
-                        c.aa_module.weight = 0.0 if opts.get("_no_kit_damage") else 1.0
-                with bpy.context.temp_override(window=win, scene=sc):
-                    bpy.ops.aab.add_building(shape=shape, width=w, depth=d, rigid=bool(opts.get("rigid")))
-                o = bpy.context.view_layer.objects.active
-                o.location.x = 40.0 * len(results)
-                s = o.aa_building
-                s.seed = 1234
-                for k, v in (NEW_DEFAULTS if any(name == c[0] for c in CASES_14) else LEGACY).items():
-                    setattr(s, k, v)
-                for k, v in opts.items():
-                    if k in POINTERS:
-                        setattr(s, k, _module(kit_col, v))
-                    elif not k.startswith("_"):
-                        setattr(s, k, v)
-                for seg in opts.get("_segments", ()):
-                    g = s.segments.add()
-                    for k, v in seg.items():
-                        setattr(g, k, _module(kit_col, v) if k in SEG_POINTERS else v)
-                kit = get_kit(kit_col)
-                plan = Plan(o, s, kit).run()
-                rebuild(o, force=True)
-                results[name] = _signature(plan, kit)
-                results[name]["status"] = s.status
-                errors += [f"{name}: {e}" for e in _checks(plan, kit, opts)]
-            except Exception:
-                errors.append(f"{name}: {traceback.format_exc().strip().splitlines()[-1]}")
+        if win is not None:
+            win.scene = sc
+        # background Blender (CI) has no window: the override makes the test scene the context scene there too
+        ctx = {"window": win, "scene": sc} if win is not None else {"scene": sc, "view_layer": sc.view_layers[0]}
+        with bpy.context.temp_override(**ctx):
+            _run_cases(sc, cases or CASES, results, errors)
     finally:
         _cleanup(before, keep)
     base = {}

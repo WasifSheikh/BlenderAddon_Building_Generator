@@ -24,7 +24,10 @@ From the artists' 1.3.0 feedback.
 - **Window sides get windows only.** Blank wall mix now defaults to 0, so wall pieces no longer appear
   among the windows unless the slider is raised. Buildings that never changed the slider lose those
   walls when their file is opened.
-- Self-test: 11 new cases (35 in all) and rule checks for rigid modules and window-only sides.
+- Self-test: 11 new cases (35 in all) and rule checks for rigid modules and window-only sides. It also runs
+  in background Blender, so CI runs it on every push.
+- Published as GitHub releases with a Blender extension repository index: add the repository URL in
+  Blender once and new versions arrive as updates.
 
 ## 1.3.0
 

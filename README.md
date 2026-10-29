@@ -14,6 +14,9 @@ aa_building_generator/      the extension itself (this folder is what gets packa
   blender_manifest.toml     id, version, Blender version
   __init__.py               registration, and the module list in load order
   tests/selftest_baseline.json
+tools/ci_selftest.py        runs the self-test in background Blender (CI, or locally)
+tools/release_notes.py      checks a release tag against the manifest, prints its changelog entry
+.github/workflows/build.yml self-test and build on every push; GitHub release on version tags
 CHANGELOG.md
 ```
 
@@ -24,11 +27,22 @@ selftest). Tuning values (stretch limits, heights, margins, snapping) live in `t
 
 ## Install for artists
 
-1. Build the zip (below), or take the released `aa_building_generator-<version>.zip`.
-2. In Blender: Edit > Preferences > Get Extensions, drop-down at the top right > Install from Disk, pick the zip.
-3. 3D Viewport > sidebar (N) > **AA Buildings** tab.
+Add this repository to Blender once; after that Blender offers every new release as an update.
 
-Installing a newer zip replaces the old version. Saved .blend files keep working.
+1. If an older version was installed from a zip, remove it first: Edit > Preferences > Get Extensions,
+   find AA Building Generator under the "User Default" repository, drop-down > Uninstall.
+2. In Get Extensions, open the **Repositories** drop-down at the top right > **+** > **Add Remote Repository**,
+   and paste:
+   ```
+   https://github.com/WasifSheikh/BlenderAddon_Building_Generator/releases/latest/download/index.json
+   ```
+   Tick **Check for Updates on Startup**.
+3. Search for **AA Building Generator** in Get Extensions and click Install.
+4. 3D Viewport > sidebar (N) > **AA Buildings** tab.
+
+Saved .blend files keep working across versions. Without the repository, the zip from the
+[latest release](https://github.com/WasifSheikh/BlenderAddon_Building_Generator/releases/latest) installs with
+Get Extensions > drop-down > Install from Disk.
 
 ## Develop
 
@@ -57,11 +71,34 @@ outlines need no filler strips, and window sides get no wall pieces on the upper
 - Cases added before 1.4.0 start from the old defaults (no rigid modules, Blank wall mix 0.1) so their
   baseline stays valid.
 
-### Build the zip
+Run the same check CI runs, from the repository folder:
+
+```
+"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" --background --factory-startup --python-exit-code 1 --python tools/ci_selftest.py
+```
+
+### Build the zip locally
 
 ```
 "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" --factory-startup --command extension build --source-dir aa_building_generator --output-dir dist
 ```
 
-This validates the manifest and writes `dist/aa_building_generator-<version>.zip`. Bump `version` in
-`blender_manifest.toml` and add a `CHANGELOG.md` entry for each release.
+This validates the manifest and writes `dist/aa_building_generator-<version>.zip` (`dist/` is not committed).
+
+## Release
+
+GitHub Actions (`.github/workflows/build.yml`) runs the self-test in headless Blender and builds the zip on
+every push and pull request. To publish a version:
+
+1. Bump `version` in `aa_building_generator/blender_manifest.toml`.
+2. Add a `## <version>` section at the top of `CHANGELOG.md`: it becomes the release notes.
+3. Commit, push, then tag and push the tag:
+   ```
+   git tag v1.4.0
+   git push origin v1.4.0
+   ```
+
+The workflow checks that the tag matches the manifest, then publishes a GitHub release with the zip and
+`index.json`. Artists who added the repository URL above get the update offered in Blender.
+If the self-test fails, nothing is released: fix it, delete the tag (`git push --delete origin v1.4.0`,
+`git tag -d v1.4.0`) and tag again.
