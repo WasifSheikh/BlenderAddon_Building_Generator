@@ -1,0 +1,17 @@
+schema_version = "1.0.0"
+
+id = "aa_building_generator"
+version = "1.4.0"
+name = "AA Building Generator"
+tagline = "Live modular buildings from an outline and a module kit"
+maintainer = "Alien Armageddon tools"
+type = "add-on"
+
+tags = ["Modeling", "Object"]
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+files = "Export buildings as FBX files for Unity"

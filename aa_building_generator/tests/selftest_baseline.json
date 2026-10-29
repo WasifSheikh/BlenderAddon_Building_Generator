@@ -1,0 +1,212 @@
+{
+ "areaways": {
+  "hash": "b575730f51244d1a12d62d6d319cce5b",
+  "pieces": 291,
+  "proc_faces": 70,
+  "status": "291 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "areaways_shops_damaged": {
+  "hash": "ca43ae0eb280d8340ab4f14b74f3d38f",
+  "pieces": 225,
+  "proc_faces": 658,
+  "status": "225 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "back_t": {
+  "hash": "b4bfbefb21169930d39f729086ec979b",
+  "pieces": 215,
+  "proc_faces": 60,
+  "status": "215 pieces \u00b7 2 floors \u00b7 7.2 m"
+ },
+ "belt_without_crown": {
+  "hash": "aec6a343c4ed00fcaff900e79c4c3699",
+  "pieces": 172,
+  "proc_faces": 40,
+  "status": "172 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "cornices_chosen": {
+  "hash": "addfe2a3d27e117446ca1d06c527035f",
+  "pieces": 228,
+  "proc_faces": 40,
+  "status": "228 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "courtyard": {
+  "hash": "1092ce1351853ccd89b9fa699250b8ce",
+  "pieces": 386,
+  "proc_faces": 120,
+  "status": "386 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "crown_as_belt": {
+  "hash": "30582f6720e1bf5c965a8559dc57c095",
+  "pieces": 178,
+  "proc_faces": 32,
+  "status": "178 pieces \u00b7 3 floors \u00b7 10.4 m"
+ },
+ "damage": {
+  "hash": "bd734040ebcd730992bcee2d620750f2",
+  "pieces": 249,
+  "proc_faces": 1030,
+  "status": "249 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "damage_generated": {
+  "hash": "997c2f512a1d84aa8dc9c1ba39643504",
+  "pieces": 204,
+  "proc_faces": 1222,
+  "status": "204 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "ground_floor_auto": {
+  "hash": "3a9c3d8ee25edea0e0de6a2cd0481ca7",
+  "pieces": 257,
+  "proc_faces": 70,
+  "status": "257 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "ground_floor_modules": {
+  "hash": "102d15ad475940c1d9f3e32a5af784a9",
+  "pieces": 323,
+  "proc_faces": 40,
+  "status": "323 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "l_rounded": {
+  "hash": "5c9f78c1313784f31736f1bb603ce1b9",
+  "pieces": 161,
+  "proc_faces": 2036,
+  "status": "161 pieces \u00b7 3 floors \u00b7 10.4 m"
+ },
+ "pilasters": {
+  "hash": "b8b69f85544b40965f6f80ee0b6a1179",
+  "pieces": 382,
+  "proc_faces": 40,
+  "status": "382 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "pilasters_damaged_units": {
+  "hash": "02dbcb4f72e0e1c29b3ab727f3518cfc",
+  "pieces": 387,
+  "proc_faces": 904,
+  "status": "387 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "pilasters_upper_only": {
+  "hash": "adbc4354c8c07ba7543bf81a27fe1331",
+  "pieces": 369,
+  "proc_faces": 40,
+  "status": "369 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "rect": {
+  "hash": "8c201d0229ff9926dcc282510003efc5",
+  "pieces": 200,
+  "proc_faces": 40,
+  "status": "200 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "rigid_courtyard": {
+  "hash": "7c90ce19e1af9661d45266801a790fc1",
+  "pieces": 378,
+  "proc_faces": 120,
+  "status": "378 pieces \u00b7 4 floors \u00b7 13.6 m | Rigid modules: cornice / parapet stretched to fit on 12 run(s)"
+ },
+ "rigid_ground_floor": {
+  "hash": "466f89422669dda1b0025a29eba90ad9",
+  "pieces": 315,
+  "proc_faces": 40,
+  "status": "315 pieces \u00b7 4 floors \u00b7 13.6 m | Rigid modules: cornice / parapet stretched to fit on 12 run(s)"
+ },
+ "rigid_l": {
+  "hash": "c8f1b6cb07f424ed045f4f68f7aeb130",
+  "pieces": 169,
+  "proc_faces": 2132,
+  "status": "169 pieces \u00b7 3 floors \u00b7 10.4 m | Rigid modules: 12 plain filler strip(s) where whole modules don't fit | Rigid modules: cornice / parapet stretched to fit on 6 run(s)"
+ },
+ "rigid_odd_size": {
+  "hash": "365d4063305a406673c50f1f53b8c084",
+  "pieces": 209,
+  "proc_faces": 40,
+  "status": "209 pieces \u00b7 4 floors \u00b7 13.6 m | Rigid modules: cornice / parapet stretched to fit on 12 run(s)"
+ },
+ "rigid_pilasters": {
+  "hash": "f65bc0b41ea3c1a94f962d1b0d0f70b0",
+  "pieces": 360,
+  "proc_faces": 40,
+  "status": "360 pieces \u00b7 4 floors \u00b7 13.6 m | Rigid modules: cornice / parapet stretched to fit on 12 run(s)"
+ },
+ "rigid_rect": {
+  "hash": "365d4063305a406673c50f1f53b8c084",
+  "pieces": 209,
+  "proc_faces": 40,
+  "status": "209 pieces \u00b7 4 floors \u00b7 13.6 m | Rigid modules: cornice / parapet stretched to fit on 12 run(s)"
+ },
+ "rigid_segments": {
+  "hash": "68d636e6c752870731ad899c807bb8db",
+  "pieces": 395,
+  "proc_faces": 56,
+  "status": "395 pieces \u00b7 6 floors \u00b7 20.8 m | Rigid modules: cornice / parapet stretched to fit on 16 run(s)"
+ },
+ "rigid_shops_damaged": {
+  "hash": "acd5047c32edd1becae20686cabfec28",
+  "pieces": 306,
+  "proc_faces": 526,
+  "status": "306 pieces \u00b7 4 floors \u00b7 13.6 m | Rigid modules: cornice / parapet stretched to fit on 12 run(s)"
+ },
+ "rigid_wall_dividers": {
+  "hash": "ca93cffd86985d0ea7eca3f7049a601d",
+  "pieces": 375,
+  "proc_faces": 40,
+  "status": "375 pieces \u00b7 4 floors \u00b7 13.6 m | Rigid modules: cornice / parapet stretched to fit on 12 run(s)"
+ },
+ "rigid_windows_side": {
+  "hash": "13d1ad2d9966891813280eb04d45247a",
+  "pieces": 166,
+  "proc_faces": 40,
+  "status": "166 pieces \u00b7 4 floors \u00b7 13.6 m | Rigid modules: cornice / parapet stretched to fit on 12 run(s)"
+ },
+ "segments": {
+  "hash": "2f2ca14b1ebc073594b41888b694f523",
+  "pieces": 391,
+  "proc_faces": 56,
+  "status": "391 pieces \u00b7 6 floors \u00b7 20.8 m"
+ },
+ "segments_pilasters_repeat": {
+  "hash": "c4b2e84357461b4e141ba193e73f6355",
+  "pieces": 511,
+  "proc_faces": 48,
+  "status": "511 pieces \u00b7 5 floors \u00b7 16.8 m"
+ },
+ "shop_generated_shutters": {
+  "hash": "abfca3ed6ecec43c293baf230d7de21d",
+  "pieces": 277,
+  "proc_faces": 3160,
+  "status": "277 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "shop_units": {
+  "hash": "917296abc5c8b9009f949f8bf26eef25",
+  "pieces": 306,
+  "proc_faces": 376,
+  "status": "306 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "u_extras": {
+  "hash": "9bf1dab39a00b8d30d2c255b5824d37b",
+  "pieces": 459,
+  "proc_faces": 100,
+  "status": "459 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "wall_dividers": {
+  "hash": "1b329fcddfc821b2f91af7612d7b2c04",
+  "pieces": 400,
+  "proc_faces": 40,
+  "status": "400 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "windows_only": {
+  "hash": "8f431bb1f2dcef0537eb2a191479931e",
+  "pieces": 162,
+  "proc_faces": 40,
+  "status": "162 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "windows_recessed": {
+  "hash": "56f88f33cc838621a0e49a3c657e5d40",
+  "pieces": 218,
+  "proc_faces": 136,
+  "status": "218 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "windows_side": {
+  "hash": "592ebff3878ee5df167dbb1faa439eb1",
+  "pieces": 163,
+  "proc_faces": 40,
+  "status": "163 pieces \u00b7 4 floors \u00b7 13.6 m"
+ }
+}
