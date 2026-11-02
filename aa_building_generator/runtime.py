@@ -2,6 +2,7 @@
 
 import bpy
 import bmesh
+import hashlib
 import numpy as np
 import traceback
 from bpy.app.handlers import persistent
@@ -85,6 +86,7 @@ def _on_load(_):
     _state["failed"].clear()
     _state["kit_objects"].clear()
     _state["kit_cols"].clear()
+    _state.setdefault("digest", {}).clear()
     request_all()
 
 
@@ -101,7 +103,7 @@ def settings_key(s):
             "balconies", "pipes", "quoins", "pilasters", "pilaster_ground", "shop_units", "shop_unit_max", "closed_shops",
             "recessed_doors", "recess_depth", "damage", "boarded_windows", "broken_roofline", "rubble", "interior_floors", "ground_height", "upper_height",
             "divider_type", "ground_mode", "ground_layout", "ground_entrance", "segment_repeat", "areaways", "areaway_shops",
-            "rigid")
+            "rigid", "ac_shift_x", "ac_shift_z")
     vals = tuple(getattr(s, k) for k in keys)
 
     def nm(c):
@@ -114,28 +116,44 @@ def settings_key(s):
 
 
 def outline_key(obj):
+    """A digest of the outline (points, edges, side styles). md5, so it is the same in every Blender session."""
+    # Edit Mode and Object Mode give the same digest for the same outline
+    h = hashlib.md5()
     if obj.mode == "EDIT":
         bm = bmesh.from_edit_mesh(obj.data)
-        ls = bm.edges.layers.int.get("aa_style")
-        lf = bm.edges.layers.int.get("aa_fire")
-        lr = bm.verts.layers.int.get("aa_round")
-        return hash((tuple(round(c, 4) for v in bm.verts for c in v.co.xy),
-                     tuple((e.verts[0].index, e.verts[1].index, e[ls] if ls else 0, e[lf] if lf else 0) for e in bm.edges),
-                     tuple(v[lr] for v in bm.verts) if lr else (), len(bm.faces)))
-    me = obj.data
-    n = len(me.vertices)
-    c = np.empty(n * 3)
-    me.vertices.foreach_get("co", c)
-    e = np.empty(len(me.edges) * 2, dtype=np.int32)
-    me.edges.foreach_get("vertices", e)
-    parts = [np.round(c, 4).tobytes(), e.tobytes(), len(me.polygons)]
-    for nm in ("aa_style", "aa_fire", "aa_round"):
-        a = me.attributes.get(nm)
-        if a is not None and a.data_type == "INT":
-            arr = np.zeros(len(a.data), dtype=np.int32)
-            a.data.foreach_get("value", arr)
-            parts.append(arr.tobytes())
-    return hash(tuple(parts))
+        bm.verts.index_update()
+        c = np.array([v.co[:] for v in bm.verts], dtype=np.float64).reshape(-1)
+        e = np.array([(ed.verts[0].index, ed.verts[1].index) for ed in bm.edges], dtype=np.int32).reshape(-1)
+        nf = len(bm.faces)
+        layers = [(nm, bm.edges.layers.int.get(nm), bm.edges) for nm in ("aa_style", "aa_fire")] + \
+                 [("aa_round", bm.verts.layers.int.get("aa_round"), bm.verts)]
+        ints = [np.array([x[lay] for x in elems], dtype=np.int32) for _, lay, elems in layers if lay is not None]
+    else:
+        me = obj.data
+        c = np.empty(len(me.vertices) * 3)
+        me.vertices.foreach_get("co", c)
+        e = np.empty(len(me.edges) * 2, dtype=np.int32)
+        me.edges.foreach_get("vertices", e)
+        nf = len(me.polygons)
+        ints = []
+        for nm in ("aa_style", "aa_fire", "aa_round"):
+            a = me.attributes.get(nm)
+            if a is not None and a.data_type == "INT":
+                arr = np.zeros(len(a.data), dtype=np.int32)
+                a.data.foreach_get("value", arr)
+                ints.append(arr)
+    h.update((np.round(c, 4) + 0.0).tobytes())
+    h.update(e.tobytes())
+    h.update(str(nf).encode())
+    for arr in ints:
+        h.update(arr.tobytes())
+    return h.hexdigest()
+
+
+def building_digest(obj):
+    """What the building looks like now (outline, settings, kit), or None before its first rebuild.
+    Stored on the building when it is baked, so a bake that no longer matches can be found."""
+    return _state.get("digest", {}).get(obj.name)
 
 
 def rebuild(obj, force=False):
@@ -172,4 +190,5 @@ def rebuild(obj, force=False):
         s.status = status
     _state["sigs"][obj.name] = (outline_key(obj), settings_key(s), kit.sig if kit else None,
                                 kit.version if kit else None, data.name, True, scl)
+    _state.setdefault("digest", {})[obj.name] = hashlib.md5(repr((sig[0], sig[1], sig[2], scl)).encode()).hexdigest()
     _state["failed"].pop(obj.name, None)

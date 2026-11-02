@@ -47,6 +47,8 @@ class ExtrasMixin:
                 a = self.pick(rng, cands)
                 along = start - m.x0 * sx + loc.x * sx
                 pos = sd.p + sd.t * along + sd.n * loc.y + Vector((0, 0, z + loc.z * sz))
+                if role == "ac":            # the building's AC nudge moves socket-placed units too
+                    pos += sd.t * s.ac_shift_x + Vector((0, 0, s.ac_shift_z))
                 self.add(a, pos, sd.yaw + yaw)
         if f == 0 and sd.style == STYLE_SHOP:
             gp = [p for p in placed if p[0].role in ("storefront", "door")]
@@ -69,10 +71,12 @@ class ExtrasMixin:
             for m, start, w, sx, sz in placed:
                 if m.role != "window":
                     continue
-                if acs and s.ac > 0 and "ac" not in socket_roles_used and rng.random() < s.ac:
+                spot = getattr(m, "ac", None)     # the window module's own AC spot (False = no AC on it)
+                if acs and s.ac > 0 and spot is not False and "ac" not in socket_roles_used and rng.random() < s.ac:
                     a = self.pick(rng, acs)
-                    along = start + w * AC_ALONG - a.cx
-                    self.add(a, sd.p + sd.t * along + Vector((0, 0, z + h * AC_Z)), sd.yaw)
+                    across, up = spot if spot else (AC_ALONG, AC_Z)
+                    along = start + w * across - a.cx + s.ac_shift_x
+                    self.add(a, sd.p + sd.t * along + Vector((0, 0, z + h * up + s.ac_shift_z)), sd.yaw)
                 elif bal and s.balconies > 0 and "balcony" not in socket_roles_used and rng.random() < s.balconies:
                     fits = [x for x in bal if BALCONY_FIT[0] <= w / x.w <= BALCONY_FIT[1]]
                     b = self.pick(rng, fits or bal)

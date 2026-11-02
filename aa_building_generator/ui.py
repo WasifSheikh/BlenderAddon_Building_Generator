@@ -19,7 +19,7 @@ from .common import (
 from .naming import ROLE_DEFS, ROLE_LABEL
 from .kit import _in_tree
 from .outline import read_outline
-from .operators import _active_kit
+from .operators import _active_kit, bake_state, existing_bake, live_source
 
 
 def _floor_ranges(s):
@@ -66,6 +66,98 @@ def _draw_modules(col, owner, layout_prop, mod_prop, corner_prop):
     elif lay == "CORNER":
         col.prop(owner, corner_prop, text="Corners")
         col.prop(owner, mod_prop, text="Middle")
+
+
+BAKE_ICON = {"none": "BLANK1", "ok": "CHECKMARK", "changed": "ERROR"}
+BAKE_TIP = {"none": "not baked", "ok": "bake up to date", "changed": "edited since its bake"}
+
+
+class AAB_PT_buildings(bpy.types.Panel):
+    """Every live building in the scene: pick one to edit, show / hide it, and keep the bakes up to date."""
+    bl_label = "Buildings"
+    bl_idname = "AAB_PT_buildings"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "AA Buildings"
+
+    def draw(self, context):
+        l = self.layout
+        act = context.active_object
+        row = l.row(align=True)
+        row.operator_menu_enum("aab.add_building", "shape", text="Add", icon="ADD")
+        row.operator("aab.duplicate_building", text="Duplicate", icon="DUPLICATE")
+        buildings = sorted((o for o in context.scene.objects if is_building(o)), key=lambda o: o.name.lower())
+        if not buildings:
+            l.label(text="No live buildings in this scene", icon="INFO")
+            return
+        changed = 0
+        baked = 0
+        col = l.column(align=True)
+        for o in buildings:
+            state = bake_state(o)
+            changed += state == "changed"
+            baked += state != "none"
+            row = col.row(align=True)
+            op = row.operator("aab.select_building", text=o.name, icon="HOME", depress=(o == act))
+            op.name = o.name
+            row.label(text="", icon=BAKE_ICON[state])
+            try:
+                hidden = o.hide_get() or o.hide_viewport
+            except RuntimeError:
+                hidden = True
+            row.operator("aab.toggle_building", text="", icon="HIDE_ON" if hidden else "HIDE_OFF", emboss=False).name = o.name
+        sub = l.row(align=True)
+        sub.enabled = changed > 0
+        sub.operator("aab.bake_changed", text=f"Update {changed} Changed Bake{'s' if changed != 1 else ''}" if changed
+                     else "All bakes up to date", icon="FILE_REFRESH")
+        if is_building(act) and sum(1 for o in context.selected_objects if is_building(o)) > 1:
+            l.operator("aab.copy_settings", icon="PASTEDOWN")
+        if act is not None and not is_building(act):
+            src = live_source(act)
+            if src is not None:
+                l.operator("aab.select_building", text=f"Edit live building '{src.name}'", icon="LOOP_BACK").name = src.name
+        if baked:
+            r = l.row()
+            r.scale_y = 0.7
+            r.label(text="Bake up to date", icon="CHECKMARK")
+            r.label(text="Edited since bake", icon="ERROR")
+
+
+def _draw_ac_spots(l, context, s):
+    """AC placement: the building's nudge, and the spot on each window module of its kit."""
+    b = l.box()
+    b.active = s.ac > 0
+    r = b.row(align=True)
+    r.label(text="AC position", icon="ORIENTATION_GLOBAL")
+    r = b.row(align=True)
+    r.prop(s, "ac_shift_x")
+    r.prop(s, "ac_shift_z")
+    sc = context.scene.aa_build
+    b.prop(sc, "show_ac_spots", icon="TRIA_DOWN" if sc.show_ac_spots else "TRIA_RIGHT", emboss=False)
+    if not sc.show_ac_spots:
+        return
+    kit = _state["kits"].get(s.kit.name) if s.kit else None
+    if kit is None:
+        b.label(text="Choose a kit first")
+        return
+    wins = [m for m in kit.all if m.role == "window" and not m.damaged]
+    if not wins:
+        b.label(text="The kit has no window modules")
+        return
+    b.label(text="Across: 0 = left edge, 1 = right edge · Height: share of the floor")
+    for m in wins:
+        col = bpy.data.collections.get(m.name)
+        if col is None:
+            continue
+        p = col.aa_module
+        c = b.column(align=True)
+        r = c.row(align=True)
+        r.label(text=m.name[:34], icon="MOD_LATTICE")
+        r.prop(p, "ac_mode", text="")
+        if p.ac_mode == "CUSTOM":
+            r = c.row(align=True)
+            r.prop(p, "ac_x", slider=True)
+            r.prop(p, "ac_z", slider=True)
 
 
 class AAB_PT_main(bpy.types.Panel):
@@ -209,6 +301,7 @@ class AAB_PT_main(bpy.types.Panel):
             c = b.column(align=True)
             for k in ("awnings", "sign_chance", "lights", "ac", "balconies", "roof_props"):
                 c.prop(s, k, slider=True)
+            _draw_ac_spots(b, context, s)
             c = b.column(align=True)
             for k in ("signs", "parapet", "pipes", "quoins", "interior_floors"):
                 c.prop(s, k)
@@ -245,6 +338,10 @@ class AAB_PT_main(bpy.types.Panel):
         row = l.row(align=True)
         row.scale_y = 1.3
         row.operator("aab.bake", text="Bake…", icon="EXPORT")
+        state = bake_state(obj)
+        if state != "none":
+            names = [x.name for x in (existing_bake(s, "MESH"), existing_bake(s, "INSTANCES")) if x is not None]
+            l.label(text=f"Baked as '{names[0]}': {BAKE_TIP[state]}", icon=BAKE_ICON[state])
         sp = context.scene.aa_build
         box = l.box()
         box.label(text="Unity export", icon="FILE_3D")

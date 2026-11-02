@@ -1,4 +1,22 @@
 {
+ "ac_custom_spot": {
+  "hash": "9795747049c13b5a4d79f916ff97a564",
+  "pieces": 254,
+  "proc_faces": 40,
+  "status": "254 pieces \u00b7 4 floors \u00b7 13.6 m | Rigid modules: cornice / parapet stretched to fit on 12 run(s)"
+ },
+ "ac_none": {
+  "hash": "6af2a5448062b77774649e50fca2065f",
+  "pieces": 193,
+  "proc_faces": 40,
+  "status": "193 pieces \u00b7 4 floors \u00b7 13.6 m"
+ },
+ "ac_per_module": {
+  "hash": "a9e6de7f6cfe79542f75769552a7b807",
+  "pieces": 334,
+  "proc_faces": 48,
+  "status": "334 pieces \u00b7 5 floors \u00b7 16.8 m"
+ },
  "areaways": {
   "hash": "b575730f51244d1a12d62d6d319cce5b",
   "pieces": 291,

@@ -22,21 +22,79 @@ UNITY_FBX = dict(
 )
 
 
+def merge_uv_layers(me, target="UVMap"):
+    """Leave exactly one UV map, named `target`.
+
+    Modules whose UV maps have other names (map1, DiffuseUV ...) come out of Realize Instances as extra UV
+    layers, with the target map left at (0, 0) on their faces. Faces that are empty in the target map take
+    their UVs from the first other layer that has them, then the extra layers are removed."""
+    layers = me.uv_layers
+    if not layers:
+        return 0
+    if target not in layers:
+        main = next((l for l in layers if l.active_render), layers[0])
+        main.name = target
+    others = [l.name for l in layers if l.name != target]
+    filled = 0
+    if others and len(me.polygons):
+        n = len(me.loops)
+        starts = np.empty(len(me.polygons), dtype=np.int64)
+        me.polygons.foreach_get("loop_start", starts)
+        face_of_loop = np.repeat(np.arange(len(starts)), np.diff(np.append(starts, n)))
+
+        def get(name):
+            a = np.empty(n * 2, dtype=np.float32)
+            layers[name].data.foreach_get("uv", a)
+            return a.reshape(n, 2)
+
+        def empty_faces(a):
+            return np.add.reduceat(np.any(a != 0.0, axis=1).astype(np.int64), starts) == 0
+        base = get(target)
+        for name in others:
+            other = get(name)
+            take = empty_faces(base) & ~empty_faces(other)
+            if take.any():
+                loops = take[face_of_loop]
+                base[loops] = other[loops]
+                filled += int(take.sum())
+        layers[target].data.foreach_set("uv", base.ravel())
+    for name in others:
+        layers.remove(layers[name])
+    layers[target].active = True
+    layers[target].active_render = True
+    return filled
+
+
 def realized_mesh(context, obj):
-    """The live building as one real mesh (modules made real), without the generator's own attributes."""
+    """The live building as one real mesh (modules made real), with one UV map and without the generator's
+    own attributes. Works on hidden buildings too (they are shown for a moment so they are evaluated)."""
     mod = obj.modifiers.get(MOD_NAME)
-    _set_input(mod, "Realize", True)
-    context.view_layer.update()
-    dg = context.evaluated_depsgraph_get()
     try:
+        hidden = obj.hide_get()
+    except RuntimeError:        # not in this view layer
+        hidden = False
+    off = obj.hide_viewport
+    if hidden:
+        obj.hide_set(False)
+    if off:
+        obj.hide_viewport = False
+    _set_input(mod, "Realize", True)
+    try:
+        context.view_layer.update()
+        dg = context.evaluated_depsgraph_get()
         me = bpy.data.meshes.new_from_object(obj.evaluated_get(dg), preserve_all_data_layers=True, depsgraph=dg)
     finally:
         _set_input(mod, "Realize", False)
+        if off:
+            obj.hide_viewport = True
+        if hidden:
+            obj.hide_set(True)
     for nm in [a.name for a in me.attributes if a.name.startswith("aa_")]:
         try:
             me.attributes.remove(me.attributes[nm])
         except Exception:
             pass
+    merge_uv_layers(me)
     return me
 
 

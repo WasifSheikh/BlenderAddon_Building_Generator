@@ -79,7 +79,18 @@ CASES_14 = [
                                              "damage": 0.5, "_pilasters": True}),
 ]
 
-CASES += CASES_14
+# 1.5.0: wall AC units at a chosen spot on each window module, and a per-building nudge.
+# "_ac": {module name or "*" (every window): (mode, across, height)}; "_ac_height": every AC must sit at that
+# share of its floor (plus the nudge); "_no_ac": no wall AC unit at all
+CASES_15 = [
+    ("ac_custom_spot", "RECT", 16, 11, {"rigid": True, "floors": 4, "ac": 1.0, "ac_shift_x": 0.1, "ac_shift_z": -0.05,
+                                        "_ac": {"*": ("CUSTOM", 0.3, 0.45)}, "_ac_height": 0.45}),
+    ("ac_per_module", "RECT", 22, 14, {"floors": 5, "ac": 1.0, "_ac": {"Window_200x320": ("NONE", 0.0, 0.0),
+                                                                      "Window_Double_400x320": ("CUSTOM", 0.75, 0.2)}}),
+    ("ac_none", "RECT", 16, 11, {"floors": 4, "ac": 1.0, "_ac": {"*": ("NONE", 0.0, 0.0)}, "_no_ac": True}),
+]
+
+CASES += CASES_14 + CASES_15
 
 # what buildings defaulted to before 1.4.0: older cases start from these, so they keep their baseline
 LEGACY = {"rigid": False, "wall_mix": 0.1}
@@ -187,6 +198,18 @@ def _checks(plan, kit, opts):
             out.append("stretched with Rigid modules on: " + ", ".join(bad[:4]))
         if opts.get("_exact") and plan.fill_strips:
             out.append(f"{plan.fill_strips} filler strip(s) on a snapped outline")
+    ac_pts = [p for p, i, _, _ in plan.points if kit.mods[i].role == "ac"]
+    if opts.get("_no_ac") and ac_pts:
+        out.append(f"{len(ac_pts)} wall AC unit(s) on windows set to No AC")
+    share = opts.get("_ac_height")
+    if share is not None:
+        dz = opts.get("ac_shift_z", 0.0)
+        if not ac_pts:
+            out.append("no wall AC units were placed")
+        for p in ac_pts:
+            if not any(abs(p.z - (plan.levels[f] + plan.heights[f] * share + dz)) < 1e-3 for f in range(1, len(plan.heights))):
+                out.append(f"AC unit at {p.z:.3f} m is not at its custom height")
+                break
     if opts.get("_no_upper_walls"):
         n = sum(1 for p, i, _, _ in plan.points if kit.mods[i].role == "wall" and p.z > plan.levels[1] - 0.01)
         if n:
@@ -206,6 +229,15 @@ def _run_cases(sc, cases, results, errors):
                 c.aa_module.weight = 1.0 if opts.get("_pilasters") else 0.0
             for c in extras:
                 c.aa_module.weight = 1.0 if c.name.split(".")[0] in opts.get("_extras", ()) else 0.0
+            ac = opts.get("_ac", {})
+            for c in kit_col.children_recursive:
+                want = ("DEFAULT", c.aa_module.ac_x, c.aa_module.ac_z)
+                for nm, spot in ac.items():
+                    if (nm == "*" and c.name.startswith("Window")) or c.name.split(".")[0] == nm:
+                        want = spot
+                p = c.aa_module
+                if (p.ac_mode, p.ac_x, p.ac_z) != tuple(want):
+                    p.ac_mode, p.ac_x, p.ac_z = want
             for c in kit_col.children:
                 if c.name.startswith("Shutter_"):
                     c.aa_module.weight = 0.0 if opts.get("_no_kit_shutter") else 1.0
@@ -216,7 +248,7 @@ def _run_cases(sc, cases, results, errors):
             o.location.x = 40.0 * len(results)
             s = o.aa_building
             s.seed = 1234
-            for k, v in (NEW_DEFAULTS if any(name == c[0] for c in CASES_14) else LEGACY).items():
+            for k, v in (NEW_DEFAULTS if any(name == c[0] for c in CASES_14 + CASES_15) else LEGACY).items():
                 setattr(s, k, v)
             for k, v in opts.items():
                 if k in POINTERS:
@@ -237,6 +269,61 @@ def _run_cases(sc, cases, results, errors):
             errors.append(f"{name}: {traceback.format_exc().strip().splitlines()[-1]}")
 
 
+def _bake_checks(errors):
+    """Baking: every live building updates only its own baked copy, wherever it was renamed or moved to."""
+    from .operators import bake_state
+    vl = bpy.context.view_layer
+
+    def bake(o, **kw):
+        vl.objects.active = o
+        bpy.ops.aab.bake(mode="MESH", target="THIS", hide_live=False, **kw)
+        return o.aa_building.baked_obj
+    try:
+        made = []
+        for shape, x in (("RECT", -60.0), ("L", -100.0)):
+            bpy.ops.aab.add_building(shape=shape, width=14, depth=10)
+            o = vl.objects.active
+            o.location.x = x
+            o.aa_building.seed = 77
+            rebuild(o, force=True)
+            made.append(o)
+        a, b = made
+        ba = bake(a)
+        ba.name = "Bake test kept"
+        ba.location.y += 50.0
+        bb = bake(b)
+        nb = len(bb.data.vertices)
+        if bake_state(a) != "ok":
+            errors.append("bake: a fresh bake does not count as up to date")
+        a.aa_building.floors += 2
+        rebuild(a)
+        if bake_state(a) != "changed":
+            errors.append("bake: editing a baked building does not mark its bake as changed")
+        n_before = len(ba.data.vertices)
+        if bake(a) != ba or ba.name != "Bake test kept" or abs(ba.location.y - (a.location.y + 50.0)) > 1e-4:
+            errors.append("bake: baking again did not update the building's own (renamed, moved) bake in place")
+        if len(ba.data.vertices) == n_before:
+            errors.append("bake: baking again did not change the baked mesh")
+        if len(bb.data.vertices) != nb:
+            errors.append("bake: baking one building changed another building's bake")
+        kept = len(ba.data.vertices)
+        new = bake(a, new_copy=True)
+        if new == ba or len(ba.data.vertices) != kept:
+            errors.append("bake: 'As a new copy' changed the previous bake")
+        b.aa_building.floors += 1
+        rebuild(b)
+        bpy.ops.aab.bake_changed()
+        if bake_state(b) != "ok" or len(bb.data.vertices) == nb:
+            errors.append("bake: Update Changed Bakes did not update the changed building")
+        for o in (ba, bb, new):
+            uvs = [l.name for l in o.data.uv_layers]
+            if uvs != ["UVMap"]:
+                errors.append(f"bake: baked mesh has UV maps {uvs}, expected one named UVMap")
+                break
+    except Exception:
+        errors.append(f"bake checks: {traceback.format_exc().strip().splitlines()[-1]}")
+
+
 def run_self_test(update=False, cases=None):
     win = bpy.context.window
     keep = win.scene if win else None
@@ -250,6 +337,8 @@ def run_self_test(update=False, cases=None):
         ctx = {"window": win, "scene": sc} if win is not None else {"scene": sc, "view_layer": sc.view_layers[0]}
         with bpy.context.temp_override(**ctx):
             _run_cases(sc, cases or CASES, results, errors)
+            if cases is None:
+                _bake_checks(errors)
     finally:
         _cleanup(before, keep)
     base = {}

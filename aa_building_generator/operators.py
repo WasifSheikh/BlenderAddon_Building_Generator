@@ -4,14 +4,14 @@ import bpy
 import bmesh
 import math
 import random
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
 from .common import GEOM_TYPES, MOD_NAME, STYLE_INFO, _state, is_building
 from .naming import tokens
 from .kit import _inside_kit, _kit_meshes, _main_uv, _safe_collection, get_kit
 from .planner import Plan
 from .nodes import _set_input, building_materials, proc_mesh
-from .runtime import invalidate_kits, rebuild, request, request_all
+from .runtime import building_digest, invalidate_kits, rebuild, request, request_all
 from .export import realized_mesh
 
 
@@ -305,21 +305,169 @@ class AAB_OT_refresh(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _home_collection(obj, scene, this_scene=True):
+    """Where a new baked copy goes: next to the live building (never inside a kit), or the root of `scene`."""
+    if this_scene:
+        cols = [c for c in obj.users_collection if not _inside_kit(c)]
+        return cols[0] if cols else scene.collection
+    return scene.collection
+
+
+def _col_in_a_scene(col):
+    return any(col == sc.collection or col in sc.collection.children_recursive for sc in bpy.data.scenes)
+
+
+def _in_view_layer(context, obj):
+    try:
+        obj.hide_get(view_layer=context.view_layer)     # raises when the object is not in this view layer
+        return True
+    except RuntimeError:
+        return False
+
+
+def existing_bake(s, mode):
+    """This building's own baked copy (mode "MESH": the object, "INSTANCES": the collection), or None.
+    A copy deleted from the scene is kept alive only by the link, so it counts as gone."""
+    if mode == "MESH":
+        o = s.baked_obj
+        return o if o is not None and o.type == "MESH" and o.users_scene else None
+    c = s.baked_col
+    return c if c is not None and _col_in_a_scene(c) else None
+
+
+def bake_state(obj):
+    """"none" (never baked), "ok" (the bake matches the building) or "changed" (edited since the bake)."""
+    s = obj.aa_building
+    if existing_bake(s, "MESH") is None and existing_bake(s, "INSTANCES") is None:
+        return "none"
+    d = building_digest(obj)
+    if d is None:
+        return "ok"           # not rebuilt yet this session: nothing to compare with
+    return "ok" if d == s.bake_sig else "changed"
+
+
+def bake_mesh(context, obj, scene, this_scene=True, new_copy=False):
+    """Bake the building into one mesh. Baking again updates this building's own baked object, wherever it
+    was moved or renamed to, and keeps its place; the bakes of other buildings are never touched."""
+    s = obj.aa_building
+    baked = None if new_copy else existing_bake(s, "MESH")
+    me = realized_mesh(context, obj)
+    if baked is not None:
+        old = baked.data
+        baked.data = me
+        if old is not None and old.users == 0:
+            bpy.data.meshes.remove(old)
+    else:
+        baked = bpy.data.objects.new(obj.name + " (baked)", me)
+        _home_collection(obj, scene, this_scene).objects.link(baked)
+        baked.matrix_world = obj.matrix_world.copy()
+        s.baked_obj = baked
+    me.name = baked.name
+    baked["aa_baked_from"] = obj.name
+    return baked
+
+
+def bake_instances(obj, scene, this_scene=True, new_copy=False):
+    """Bake the building into module instances under a parent empty, in this building's own collection."""
+    s = obj.aa_building
+    kit = get_kit(s.kit) if s.kit else None
+    plan = Plan(obj, s, kit).run()
+    bc = None if new_copy else existing_bake(s, "INSTANCES")
+    if bc is None:
+        bc = bpy.data.collections.new(obj.name + " (instances)")
+        _home_collection(obj, scene, this_scene).children.link(bc)
+        s.baked_col = bc
+    bc["aa_baked_from"] = obj.name
+    prev = next((o for o in bc.objects if o.get("aa_baked_part") == "root"), None)
+    M = prev.matrix_world.copy() if prev is not None else obj.matrix_world.copy()   # keep where it was put
+    root_name = prev.name if prev is not None else obj.name + " (instances)"
+    for o in [o for o in bc.all_objects if o.get("aa_baked_part")]:
+        me = o.data if o.type == "MESH" else None
+        bpy.data.objects.remove(o)
+        if me is not None and me.users == 0:
+            bpy.data.meshes.remove(me)
+    root = bpy.data.objects.new(root_name, None)
+    root.empty_display_type = "PLAIN_AXES"
+    root["aa_baked_from"] = obj.name
+    root["aa_baked_part"] = "root"
+    bc.objects.link(root)
+    root.matrix_world = M
+    if kit is not None:
+        K = Matrix.Rotation(kit.rot, 4, "Z") @ Matrix.Diagonal((kit.scale, kit.scale, kit.scale, 1.0))
+        for pos, index, yaw, scl in plan.points:
+            m = kit.mods[index]
+            col = bpy.data.collections.get(m.name)
+            if col is None:
+                continue
+            e = bpy.data.objects.new(m.name, None)
+            e.instance_type = "COLLECTION"
+            e.instance_collection = col
+            e.empty_display_size = 0.2
+            e["aa_baked_from"] = obj.name
+            e["aa_baked_part"] = "module"
+            bc.objects.link(e)
+            e.parent = root
+            e.matrix_basis = Matrix.Translation(pos) @ Matrix.Rotation(yaw, 4, "Z") @ \
+                Matrix.Diagonal((scl[0], scl[1], scl[2], 1.0)) @ K
+    if plan.proc.f:
+        me = proc_mesh(obj.name + " (structure)", plan.proc, building_materials(s, kit, (max(plan.proc.m) + 1) if plan.proc.m else 3))
+        so = bpy.data.objects.new(obj.name + " (structure)", me)
+        so["aa_baked_from"] = obj.name
+        so["aa_baked_part"] = "structure"
+        bc.objects.link(so)
+        so.parent = root
+    return root
+
+
+def live_source(o):
+    """The live building a baked object (or a part of a baked instance collection) was made from, or None."""
+    if o is None:
+        return None
+    for b in bpy.data.objects:
+        if not is_building(b):
+            continue
+        s = b.aa_building
+        if s.baked_obj == o or (s.baked_col is not None and o.name in s.baked_col.all_objects):
+            return b
+    return None
+
+
 class AAB_OT_bake(bpy.types.Operator):
     bl_idname = "aab.bake"
     bl_label = "Bake"
-    bl_description = "Make a static copy of the building: module instances to edit by hand, or one mesh for export"
+    bl_description = ("Make a static copy of the building: module instances to edit by hand, or one mesh for export. "
+                      "The live building stays editable: bake it again to update its copy")
     bl_options = {"REGISTER", "UNDO"}
-    mode: bpy.props.EnumProperty(name="Bake as", default="INSTANCES", items=[
-        ("INSTANCES", "Module instances", "One collection instance per module under a parent empty: move, delete or swap pieces by hand"),
-        ("MESH", "Single mesh", "Everything joined into one mesh (real geometry, ready for FBX export to Unity)")])
+    mode: bpy.props.EnumProperty(name="Bake as", default="MESH", items=[
+        ("MESH", "Single mesh", "Everything joined into one mesh (real geometry, ready for FBX export to Unity)"),
+        ("INSTANCES", "Module instances", "One collection instance per module under a parent empty: move, delete or swap pieces by hand")])
     target: bpy.props.EnumProperty(name="Put it in", default="THIS", items=[
         ("THIS", "This scene", "Add the baked copy next to the live building"),
         ("NEW_SCENE", "New scene", "Put the baked copy in a separate scene")])
+    new_copy: bpy.props.BoolProperty(name="As a new copy", default=False,
+                                     description="Leave this building's previous bake as it is and make another one "
+                                                 "(the new one is what baking again updates from now on)")
     hide_live: bpy.props.BoolProperty(name="Hide the live building", default=True)
+
+    @classmethod
+    def poll(cls, context):
+        return is_building(context.active_object)
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        l = self.layout
+        s = context.active_object.aa_building
+        l.prop(self, "mode")
+        prev = existing_bake(s, self.mode)
+        if prev is not None:
+            l.prop(self, "new_copy")
+            if not self.new_copy:
+                l.label(text=f"Updates '{prev.name}' in place", icon="FILE_REFRESH")
+        if prev is None or self.new_copy:
+            l.prop(self, "target")
+        l.prop(self, "hide_live")
 
     def execute(self, context):
         obj = context.active_object
@@ -328,12 +476,17 @@ class AAB_OT_bake(bpy.types.Operator):
         if obj.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
         rebuild(obj, force=True)
-        if self.target == "THIS":
+        this_scene = self.target == "THIS"
+        if this_scene:
             scene = context.scene
         else:
             scene = bpy.data.scenes.get("AA Baked Buildings") or bpy.data.scenes.new("AA Baked Buildings")
-        baked = self.bake_instances(obj, scene) if self.mode == "INSTANCES" else self.bake_mesh(context, obj, scene)
-        if self.target == "THIS":
+        if self.mode == "INSTANCES":
+            baked = bake_instances(obj, scene, this_scene, self.new_copy)
+        else:
+            baked = bake_mesh(context, obj, scene, this_scene, self.new_copy)
+        obj.aa_building.bake_sig = building_digest(obj) or ""
+        if context.scene in baked.users_scene:
             if self.hide_live:
                 obj.hide_set(True)
             for o in context.selected_objects:
@@ -345,79 +498,172 @@ class AAB_OT_bake(bpy.types.Operator):
             except Exception:
                 pass
         else:
-            self.report({"INFO"}, f"Baked into scene '{scene.name}'")
+            self.report({"INFO"}, f"Baked into scene '{baked.users_scene[0].name if baked.users_scene else scene.name}'")
         return {"FINISHED"}
 
-    def home_collection(self, obj, scene):
-        if self.target == "THIS":
-            cols = [c for c in obj.users_collection if not _inside_kit(c)]
-            return cols[0] if cols else scene.collection
-        return scene.collection
 
-    def bake_mesh(self, context, obj, scene):
-        me = realized_mesh(context, obj)
-        # baking again replaces the previous baked copy instead of adding another one
-        baked = next((o for o in scene.objects if o.type == "MESH" and o.get("aa_baked_from") == obj.name
-                      and not o.get("aa_baked_part")), None)
-        if baked is not None:
-            old = baked.data
-            baked.data = me
-            if old is not None and old.users == 0:
-                bpy.data.meshes.remove(old)
+class AAB_OT_bake_changed(bpy.types.Operator):
+    bl_idname = "aab.bake_changed"
+    bl_label = "Update Changed Bakes"
+    bl_description = ("Bake again every building in this scene that was edited since its last bake. "
+                      "Each building only updates its own baked copy, which keeps its name and place")
+    bl_options = {"REGISTER", "UNDO"}
+    everything: bpy.props.BoolProperty(name="All baked buildings", default=False,
+                                       description="Bake again every building that has a bake, changed or not")
+
+    def execute(self, context):
+        if context.object is not None and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        done = 0
+        for obj in [o for o in context.scene.objects if is_building(o)]:
+            s = obj.aa_building
+            has_mesh = existing_bake(s, "MESH") is not None
+            has_inst = existing_bake(s, "INSTANCES") is not None
+            if not (has_mesh or has_inst) or not _in_view_layer(context, obj):
+                continue
+            rebuild(obj, force=True)
+            if not self.everything and bake_state(obj) == "ok":
+                continue
+            if has_mesh:
+                bake_mesh(context, obj, context.scene)
+            if has_inst:
+                bake_instances(obj, context.scene)
+            s.bake_sig = building_digest(obj) or ""
+            done += 1
+        self.report({"INFO"}, f"Updated the bake of {done} building(s)" if done else "Every bake is up to date")
+        return {"FINISHED"}
+
+
+class AAB_OT_select_building(bpy.types.Operator):
+    bl_idname = "aab.select_building"
+    bl_label = "Select Building"
+    bl_description = "Make this the active building (shows it when it was hidden). Shift-click: add it to the selection"
+    bl_options = {"REGISTER", "UNDO"}
+    name: bpy.props.StringProperty()
+    extend: bpy.props.BoolProperty(default=False, options={"SKIP_SAVE"})
+
+    def invoke(self, context, event):
+        self.extend = event.shift
+        return self.execute(context)
+
+    def execute(self, context):
+        obj = bpy.data.objects.get(self.name)
+        if obj is None or not _in_view_layer(context, obj):
+            return {"CANCELLED"}
+        if context.object is not None and context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        if not self.extend:
+            for o in context.selected_objects:
+                o.select_set(False)
+        obj.hide_viewport = False
+        obj.hide_set(False)
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+        return {"FINISHED"}
+
+
+class AAB_OT_toggle_building(bpy.types.Operator):
+    bl_idname = "aab.toggle_building"
+    bl_label = "Show / Hide Building"
+    bl_description = "Show or hide this live building in the viewport"
+    name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        obj = bpy.data.objects.get(self.name)
+        if obj is None or not _in_view_layer(context, obj):
+            return {"CANCELLED"}
+        if obj.hide_viewport:
+            obj.hide_viewport = False
+            obj.hide_set(False)
         else:
-            baked = bpy.data.objects.new(obj.name + " (baked)", me)
-            self.home_collection(obj, scene).objects.link(baked)
-        me.name = obj.name + " (baked)"
-        baked["aa_baked_from"] = obj.name
-        baked.matrix_world = obj.matrix_world.copy()
-        return baked
+            obj.hide_set(not obj.hide_get())
+        return {"FINISHED"}
 
-    def bake_instances(self, obj, scene):
-        s = obj.aa_building
-        kit = get_kit(s.kit) if s.kit else None
-        plan = Plan(obj, s, kit).run()
-        # one collection per baked building; baking again replaces its contents
-        bc = next((c for c in scene.collection.children_recursive if c.get("aa_baked_from") == obj.name), None)
-        if bc is None:
-            bc = bpy.data.collections.new(obj.name + " (instances)")
-            bc["aa_baked_from"] = obj.name
-            self.home_collection(obj, scene).children.link(bc)
-        for o in [o for o in bc.all_objects if o.get("aa_baked_part")]:
-            me = o.data if o.type == "MESH" else None
-            bpy.data.objects.remove(o)
-            if me is not None and me.users == 0:
-                bpy.data.meshes.remove(me)
-        root = bpy.data.objects.new(obj.name + " (instances)", None)
-        root.empty_display_type = "PLAIN_AXES"
-        root["aa_baked_from"] = obj.name
-        root["aa_baked_part"] = "root"
-        bc.objects.link(root)
-        root.matrix_world = obj.matrix_world.copy()
-        if kit is not None:
-            K = Matrix.Rotation(kit.rot, 4, "Z") @ Matrix.Diagonal((kit.scale, kit.scale, kit.scale, 1.0))
-            for pos, index, yaw, scl in plan.points:
-                m = kit.mods[index]
-                col = bpy.data.collections.get(m.name)
-                if col is None:
+
+class AAB_OT_duplicate(bpy.types.Operator):
+    bl_idname = "aab.duplicate_building"
+    bl_label = "Duplicate Building"
+    bl_description = "Make an independent live copy of the active building with the same settings, placed next to it"
+    bl_options = {"REGISTER", "UNDO"}
+    new_variation: bpy.props.BoolProperty(name="New variation", default=False,
+                                          description="Shuffle the module choice of the copy")
+
+    @classmethod
+    def poll(cls, context):
+        return is_building(context.active_object)
+
+    def execute(self, context):
+        src = context.active_object
+        if src.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        dup = src.copy()
+        dup.data = src.data.copy()
+        cols = [c for c in src.users_collection if not _inside_kit(c)] or [_safe_collection(context)]
+        for c in cols:
+            c.objects.link(dup)
+        s = dup.aa_building
+        s.data_obj = None           # its own data, same variation (a plain Shift+D copy gets a new variation)
+        s.baked_obj = None
+        s.baked_col = None
+        s.bake_sig = ""
+        s.status = ""
+        if self.new_variation:
+            s.seed = random.randint(1, 99999)
+        xs = [v.co.x for v in src.data.vertices]
+        width = (max(xs) - min(xs)) * abs(src.scale.x) if xs else 10.0
+        dup.location = src.location + Vector((width + 4.0, 0.0, 0.0))
+        for o in context.selected_objects:
+            o.select_set(False)
+        dup.hide_set(False)
+        dup.select_set(True)
+        context.view_layer.objects.active = dup
+        request(dup.name)
+        return {"FINISHED"}
+
+
+# settings that belong to one building only and are never copied between buildings
+NO_COPY = {"rna_type", "name", "enabled", "data_obj", "baked_obj", "baked_col", "bake_sig", "status",
+           "segment_index", "show_extras", "segments", "seed"}
+
+
+class AAB_OT_copy_settings(bpy.types.Operator):
+    bl_idname = "aab.copy_settings"
+    bl_label = "Copy Settings to Selected"
+    bl_description = ("Give the other selected buildings the active building's settings: kit, floors, ground floor, "
+                      "segments, extras, materials. Their outlines and side styles stay as they are")
+    bl_options = {"REGISTER", "UNDO"}
+    variation: bpy.props.BoolProperty(name="Copy the variation too", default=False)
+
+    @classmethod
+    def poll(cls, context):
+        a = context.active_object
+        return is_building(a) and any(is_building(o) and o != a for o in context.selected_objects)
+
+    def execute(self, context):
+        src_obj = context.active_object
+        src = src_obj.aa_building
+        props = src.bl_rna.properties
+        n = 0
+        for o in context.selected_objects:
+            if o == src_obj or not is_building(o):
+                continue
+            t = o.aa_building
+            for k in props.keys():
+                if k in NO_COPY or props[k].is_readonly:
                     continue
-                e = bpy.data.objects.new(m.name, None)
-                e.instance_type = "COLLECTION"
-                e.instance_collection = col
-                e.empty_display_size = 0.2
-                e["aa_baked_from"] = obj.name
-                e["aa_baked_part"] = "module"
-                bc.objects.link(e)
-                e.parent = root
-                e.matrix_basis = Matrix.Translation(pos) @ Matrix.Rotation(yaw, 4, "Z") @ \
-                    Matrix.Diagonal((scl[0], scl[1], scl[2], 1.0)) @ K
-        if plan.proc.f:
-            me = proc_mesh(obj.name + " (structure)", plan.proc, building_materials(s, kit, (max(plan.proc.m) + 1) if plan.proc.m else 3))
-            so = bpy.data.objects.new(obj.name + " (structure)", me)
-            so["aa_baked_from"] = obj.name
-            so["aa_baked_part"] = "structure"
-            bc.objects.link(so)
-            so.parent = root
-        return root
+                setattr(t, k, getattr(src, k))
+            t.segments.clear()
+            for g in src.segments:
+                ng = t.segments.add()
+                for k in SEGMENT_COPY:
+                    setattr(ng, k, getattr(g, k))
+            t.segment_index = src.segment_index
+            if self.variation:
+                t.seed = src.seed
+            request(o.name)
+            n += 1
+        self.report({"INFO"}, f"Copied the settings to {n} building(s)")
+        return {"FINISHED"}
 
 
 class AAB_OT_make_modules(bpy.types.Operator):

@@ -73,7 +73,7 @@ def _main_uv(me):
 class Mod:
     __slots__ = ("name", "role", "layer", "floor", "weight", "w", "h", "d", "x0", "lo", "hi", "sockets",
                  "kind", "turn", "trim_in", "trim_out", "radius", "index", "mounted", "cx", "cy", "rxy",
-                 "tokens", "material", "sub", "guessed", "rc", "re", "rin", "damaged")
+                 "tokens", "material", "sub", "guessed", "rc", "re", "rin", "damaged", "ac")
 
     def __init__(self):
         self.sockets = []
@@ -89,6 +89,7 @@ class Mod:
         self.re = Vector((0.0, -1.0, 0.0))    # rounded pieces: direction from the centre to side A's end
         self.rin = None
         self.damaged = False
+        self.ac = None        # wall AC spot on a window: None = default, (across, height) shares, False = no AC
 
 
 class Kit:
@@ -132,7 +133,8 @@ def kit_signature(root):
 
     def visit(c):
         p = c.aa_module
-        parts.append((c.name, len(c.objects), len(c.children), p.category, p.floor, round(p.weight, 3)))
+        parts.append((c.name, len(c.objects), len(c.children), p.category, p.floor, round(p.weight, 3),
+                      p.ac_mode, round(p.ac_x, 4), round(p.ac_z, 4)))
         for ch in c.children:
             visit(ch)
     for ch in root.children:
@@ -321,6 +323,7 @@ def build_kit(root):
             m.sub = "unknown"
         m.role = role
         m.weight = props.weight
+        m.ac = {"CUSTOM": (props.ac_x, props.ac_z), "NONE": False}.get(props.ac_mode)
         # fitting size
         mw = hi.x - lo.x
         mh = hi.z - max(lo.z, 0.0)
@@ -527,7 +530,8 @@ def build_kit(root):
             names.add(uv.name)
     kit.uv_issue = bool(names - {"UVMap"})
     if kit.uv_issue:
-        kit.warnings.append("UV maps have different names (" + ", ".join(sorted(names)) + "): Fix UV Map Names before baking")
+        kit.warnings.append("UV maps have different names (" + ", ".join(sorted(names)) + "): bakes merge them into one "
+                            "UVMap; Fix UV Map Names tidies the kit")
     kit.sig = kit_signature(root)
     kit.version = _state["kit_version"]
     return kit

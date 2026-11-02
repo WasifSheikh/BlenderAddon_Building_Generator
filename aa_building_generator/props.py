@@ -5,6 +5,7 @@ import bpy
 from .common import GROUND_DEFAULT_ITEMS, _state
 from .naming import FLOOR_DEFS, ROLE_DEFS
 from .runtime import invalidate_kits, request
+from .tuning import AC_ALONG, AC_Z
 
 
 def _upd_building(self, context):
@@ -66,6 +67,17 @@ class AAB_ModuleProps(bpy.types.PropertyGroup):
     floor: bpy.props.EnumProperty(name="Floor", items=FLOOR_DEFS, default="AUTO", update=_upd_kit)
     weight: bpy.props.FloatProperty(name="Frequency", default=1.0, min=0.0, soft_max=5.0, update=_upd_kit,
                                     description="How often this module is picked (0 = never)")
+    # wall AC units on window modules: where they sit depends on where the window is in each module
+    ac_mode: bpy.props.EnumProperty(name="AC unit", default="DEFAULT", update=_upd_kit, items=[
+        ("DEFAULT", "Default spot", "Wall AC units sit at the default spot on this window"),
+        ("CUSTOM", "Custom spot", "Choose where wall AC units sit on this window module"),
+        ("NONE", "No AC", "Never put a wall AC unit on this window module")])
+    ac_x: bpy.props.FloatProperty(name="Across", default=AC_ALONG, min=-0.5, max=1.5, soft_min=0.0, soft_max=1.0,
+                                  subtype="FACTOR", update=_upd_kit,
+                                  description="Centre of the AC unit across the module: 0 = its left edge, 1 = its right edge")
+    ac_z: bpy.props.FloatProperty(name="Height", default=AC_Z, min=-0.5, max=1.5, soft_min=0.0, soft_max=1.0,
+                                  subtype="FACTOR", update=_upd_kit,
+                                  description="Bottom of the AC unit: 0 = the floor, 1 = the top of the storey")
 
 
 class AAB_KitProps(bpy.types.PropertyGroup):
@@ -119,6 +131,12 @@ class AAB_BuildingProps(bpy.types.PropertyGroup):
     parapet: bpy.props.BoolProperty(name="Parapet", default=True, update=_upd_building)
     roof_props: bpy.props.FloatProperty(name="Roof props", default=0.5, min=0, max=1, subtype="FACTOR", update=_upd_building)
     ac: bpy.props.FloatProperty(name="Wall AC units", default=0.2, min=0, max=1, subtype="FACTOR", update=_upd_building)
+    ac_shift_x: bpy.props.FloatProperty(name="Sideways", default=0.0, soft_min=-2.0, soft_max=2.0, unit="LENGTH",
+                                        update=_upd_building,
+                                        description="Move every wall AC unit on this building along the wall (+ = to the right, facing the wall)")
+    ac_shift_z: bpy.props.FloatProperty(name="Up / down", default=0.0, soft_min=-2.0, soft_max=2.0, unit="LENGTH",
+                                        update=_upd_building,
+                                        description="Move every wall AC unit on this building up or down")
     awnings: bpy.props.FloatProperty(name="Awnings", default=0.7, min=0, max=1, subtype="FACTOR", update=_upd_building)
     signs: bpy.props.BoolProperty(name="Shop signs", default=True, update=_upd_building)
     sign_chance: bpy.props.FloatProperty(name="Shop signs", default=1.0, min=0, max=1, subtype="FACTOR", update=_upd_building,
@@ -187,6 +205,10 @@ class AAB_BuildingProps(bpy.types.PropertyGroup):
     wall_material: bpy.props.PointerProperty(name="Wall material", type=bpy.types.Material, update=_upd_building)
     roof_material: bpy.props.PointerProperty(name="Roof material", type=bpy.types.Material, update=_upd_building)
     data_obj: bpy.props.PointerProperty(type=bpy.types.Object)
+    # this building's own baked copies: re-baking updates these and nothing else
+    baked_obj: bpy.props.PointerProperty(type=bpy.types.Object)
+    baked_col: bpy.props.PointerProperty(type=bpy.types.Collection)
+    bake_sig: bpy.props.StringProperty(description="What the building looked like when it was last baked")
     status: bpy.props.StringProperty()
     show_extras: bpy.props.BoolProperty(name="Details & extras", default=False)
 
@@ -195,6 +217,7 @@ class AAB_SceneProps(bpy.types.PropertyGroup):
     kit: bpy.props.PointerProperty(name="Kit for new buildings", type=bpy.types.Collection)
     show_kit: bpy.props.BoolProperty(name="Kit modules", default=False)
     show_overlay: bpy.props.BoolProperty(name="Show side labels in Edit Mode", default=True)
+    show_ac_spots: bpy.props.BoolProperty(name="AC spot per window module", default=False)
     export_dir: bpy.props.StringProperty(name="Export folder", default="//Unity_Export/", subtype="DIR_PATH",
                                          description="Where Export FBX for Unity writes its files (// = next to the .blend)")
     export_at_origin: bpy.props.BoolProperty(name="At origin", default=True,

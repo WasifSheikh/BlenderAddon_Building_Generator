@@ -50,6 +50,10 @@ def ensure_data(obj):
         me = bpy.data.meshes.new("AA Data | " + obj.name)
         data = bpy.data.objects.new("AA Data | " + obj.name, me)
         s.data_obj = data
+    elif owner and owner != obj.name:
+        data.name = "AA Data | " + obj.name      # the building was renamed: keep its data easy to find
+        if data.data is not None:
+            data.data.name = data.name
     data["aa_owner"] = obj.name
     return data
 

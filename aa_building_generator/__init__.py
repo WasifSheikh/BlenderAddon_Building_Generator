@@ -53,6 +53,9 @@ from .props import AAB_BuildingProps, AAB_KitProps, AAB_ModuleProps, AAB_ScenePr
 from .operators import (
     AAB_OT_add,
     AAB_OT_bake,
+    AAB_OT_bake_changed,
+    AAB_OT_copy_settings,
+    AAB_OT_duplicate,
     AAB_OT_fire,
     AAB_OT_fix_uvs,
     AAB_OT_hide_kit,
@@ -67,13 +70,15 @@ from .operators import (
     AAB_OT_snap_outline,
     AAB_OT_segment_move,
     AAB_OT_segment_remove,
+    AAB_OT_select_building,
     AAB_OT_style,
+    AAB_OT_toggle_building,
 )
 from .sample_kit import AAB_OT_sample_kit
 from .export import AAB_OT_export_unity
 from .validate import AAB_OT_check_kit
 from .selftest import AAB_OT_self_test
-from .ui import AAB_PT_kit, AAB_PT_main, AAB_UL_segments, _draw_handles, _draw_px, _draw_view
+from .ui import AAB_PT_buildings, AAB_PT_kit, AAB_PT_main, AAB_UL_segments, _draw_handles, _draw_px, _draw_view
 
 
 CLASSES = (
@@ -82,7 +87,8 @@ CLASSES = (
     AAB_OT_refresh, AAB_OT_bake, AAB_OT_make_modules, AAB_OT_hide_kit, AAB_OT_sample_kit,
     AAB_OT_move_out, AAB_OT_fix_uvs, AAB_OT_segment_add, AAB_OT_segment_remove, AAB_OT_segment_move,
     AAB_OT_self_test, AAB_OT_export_unity, AAB_OT_check_kit,
-    AAB_UL_segments, AAB_PT_main, AAB_PT_kit,
+    AAB_OT_bake_changed, AAB_OT_select_building, AAB_OT_toggle_building, AAB_OT_duplicate, AAB_OT_copy_settings,
+    AAB_UL_segments, AAB_PT_buildings, AAB_PT_main, AAB_PT_kit,
 )
 
 

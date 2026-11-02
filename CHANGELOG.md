@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.5.0 (2026-11-02)
+
+- **Every building stays live.** Keep as many adjustable buildings in a file as you like and bake each one
+  as often as you like.
+  - Each building remembers its own baked copy. Baking again updates that copy in place, even after it was
+    renamed or moved, and never touches another building's bake. (Before, a bake was found by the live
+    building's name, so baking a building again replaced an older bake of it, even a renamed one.)
+  - **As a new copy** in the Bake dialog keeps the previous bake and starts a new one.
+  - Re-baking keeps the baked copy's place in the level (mesh and instance bakes).
+  - New **Buildings** panel: every live building in the scene, click to edit (shows it if hidden), eye to
+    show / hide, and whether its bake is up to date or was edited since. **Update Changed Bakes** re-bakes
+    only the buildings that changed. Add and **Duplicate** (an independent live copy with the same
+    settings) are always at hand. With a baked copy selected, one click jumps back to its live building.
+  - **Copy Settings to Selected** gives other buildings the active one's settings, outlines untouched.
+  - Bake dialog defaults to Single mesh.
+- **Wall AC units: two-axis placement.** Each window module gets an AC spot (Default, Custom with Across /
+  Height, or No AC) under Details & extras > AC spot per window module, since windows sit in different
+  places on different modules. Each building also has a Sideways / Up-down nudge for all its AC units.
+- Baked and exported meshes always have exactly one UV map, `UVMap`: UVs from modules whose UV maps have
+  other names (map1, DiffuseUV ...) are merged into it instead of becoming extra, half-empty UV layers.
+- Baking or exporting a hidden live building works (it is shown for a moment while it is evaluated).
+- Renaming a building renames its hidden data object to match. Moving outline points up or down in Edit
+  Mode now rebuilds the building.
+- Self-test: 3 AC cases and bake checks (38 cases).
+
 ## 1.4.0 (2026-10-29)
 
 From the artists' 1.3.0 feedback.
