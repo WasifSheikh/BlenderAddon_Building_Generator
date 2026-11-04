@@ -6,11 +6,14 @@ module is kept in a collection "AA Lit | <module>" that is not part of any scene
 copies with the glass replaced by "<glass>_Lit" (or the kit's chosen Lit material). The Geometry Nodes group
 lists these copies after the kit's own modules, and the plan's lit windows point at them.
 
-The copies are remade whenever the kit is re-read (any edit to a kit module), so they always match it.
+The copies are remade when the module they copy changes (its geometry, materials or objects, or the kit's glass
+choice), so they always match it; an unchanged copy is kept as it is, because removing and adding objects makes
+Blender re-evaluate the whole file.
 In Unity the lit windows come in with their own material ("Glass_Lit"): give that one the emissive texture.
 """
 
 import bpy
+import hashlib
 
 from .naming import tokens
 
@@ -73,15 +76,44 @@ def _clear(vc):
                 bpy.data.curves.remove(data)
 
 
-def _variant(col, root, kp, lit_mats):
-    """Fill 'AA Lit | <module>' with copies of the module's objects, glass swapped for its lit material."""
+def _fingerprint(m, col, kp):
+    """What a lit copy is made from: the module's geometry and materials (Mod.geo), its objects, its origin and the
+    kit's glass / lit material choice. A copy with the same fingerprint is up to date and is kept as it is."""
+    return hashlib.md5(repr((m.geo, tuple(o.name for o in col.all_objects), tuple(round(v, 5) for v in col.instance_offset),
+                             kp.glass_material.name if kp.glass_material else None,
+                             kp.lit_material.name if kp.lit_material else None)).encode("utf-8")).hexdigest()
+
+
+def _reusable(vc, col, fp):
+    """Is the existing lit copy `vc` up to date? Then its lit materials are returned, else None."""
+    if vc is None or vc.get("aa_lit_fp") != fp or len(vc.objects) != len(col.all_objects):
+        return None
+    mats = vc.get("aa_lit_mats")
+    if mats is None:
+        return None
+    names = [str(n) for n in mats]
+    return names if all(bpy.data.materials.get(n) is not None for n in names) else None
+
+
+def _variant(col, root, kp, lit_mats, m=None):
+    """Fill 'AA Lit | <module>' with copies of the module's objects, glass swapped for its lit material.
+    Removing and adding objects makes Blender re-evaluate the whole file, so an up-to-date copy is kept."""
     vc = bpy.data.collections.get(LIT_PREFIX + col.name)
+    fp = _fingerprint(m, col, kp) if m is not None and m.geo else None
+    if fp is not None:
+        kept = _reusable(vc, col, fp)
+        if kept is not None:
+            lit_mats.update(kept)
+            if vc.get("aa_lit_kit") != root.name:
+                vc["aa_lit_kit"] = root.name
+            return vc
     if vc is None:
         vc = bpy.data.collections.new(LIT_PREFIX + col.name)
     vc.use_fake_user = True        # not in any scene: kept by the node group and this flag
     vc["aa_lit_kit"] = root.name
     vc["aa_lit_module"] = col.name
     _clear(vc)
+    own = set()
     vc.instance_offset = col.instance_offset
     copies = {}
     for o in col.all_objects:
@@ -96,6 +128,7 @@ def _variant(col, root, kp, lit_mats):
             for i in slots:
                 lit = lit_material(o.material_slots[i].material, kp)
                 lit_mats.add(lit.name)
+                own.add(lit.name)
                 if i < len(c.data.materials):
                     c.data.materials[i] = lit
                 if c.material_slots[i].link == "OBJECT":
@@ -106,6 +139,8 @@ def _variant(col, root, kp, lit_mats):
         if o.parent in copies:
             c.parent = copies[o.parent]
             c.matrix_parent_inverse = o.matrix_parent_inverse.copy()
+    vc["aa_lit_mats"] = sorted(own)
+    vc["aa_lit_fp"] = fp or ""
     return vc
 
 
@@ -124,7 +159,7 @@ def ensure_lit_variants(kit, root):
         col = bpy.data.collections.get(m.name)
         if col is None or not module_has_glass(col, kp):
             continue
-        vc = _variant(col, root, kp, kit.lit_mats)
+        vc = _variant(col, root, kp, kit.lit_mats, m)
         keep.add(vc.name)
         kit.lit[m.index] = len(kit.mods) + len(kit.lit_names)
         kit.lit_names.append(vc.name)

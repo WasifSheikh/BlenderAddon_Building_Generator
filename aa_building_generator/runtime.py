@@ -8,7 +8,7 @@ import traceback
 from bpy.app.handlers import persistent
 
 from .common import _state, is_building
-from .kit import _in_tree, get_kit
+from .kit import _in_tree, get_kit, kit_signature, kit_structure
 from .lighting import ensure_lit_variants, instance_indices
 from .planner import Plan
 from .nodes import building_materials, ensure_data, ensure_group, ensure_modifier, write_data
@@ -59,11 +59,25 @@ def _tick():
     return 0.01 if _state["dirty"] else None   # requests made during this run are not lost
 
 
+def _kit_changed(name):
+    """A collection of this kit was flagged as updated: did the kit really change? Blender flags every collection in
+    the file whenever any object is added or removed anywhere (the lit copies of lighting.py are such objects), so a
+    flag alone used to re-read every kit and rebuild every building, which made the next flag: an endless loop."""
+    root = bpy.data.collections.get(name)
+    if root is None:
+        return True                      # the kit was deleted or renamed: its buildings show that
+    kit = _state["kits"].get(name)
+    if kit is None:
+        return False                     # already dropped (or never read): the next rebuild reads it anyway
+    return kit.sig != kit_signature(root) or kit.struct != kit_structure(root)
+
+
 @persistent
 def _on_depsgraph(scene, depsgraph):
     if _state["busy"]:
         return
     kit_hits = set()
+    col_hits = set()
     for u in depsgraph.updates:
         idb = u.id
         if isinstance(idb, bpy.types.Object):
@@ -73,9 +87,12 @@ def _on_depsgraph(scene, depsgraph):
             elif (u.is_updated_geometry or u.is_updated_transform) and o.name in _state["kit_objects"]:
                 kit_hits.add(_state["kit_objects"][o.name])
         elif isinstance(idb, bpy.types.Collection):
-            c = idb.original
-            if c.name in _state["kit_cols"]:
-                kit_hits.add(_state["kit_cols"][c.name])
+            k = _state["kit_cols"].get(idb.original.name)
+            if k is not None:
+                col_hits.add(k)
+    for k in col_hits - kit_hits:
+        if _kit_changed(k):
+            kit_hits.add(k)
     for k in kit_hits:
         invalidate_kits(k)
 

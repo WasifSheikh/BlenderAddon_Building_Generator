@@ -73,7 +73,7 @@ def _main_uv(me):
 class Mod:
     __slots__ = ("name", "role", "layer", "floor", "weight", "w", "h", "d", "x0", "lo", "hi", "sockets",
                  "kind", "turn", "trim_in", "trim_out", "radius", "index", "mounted", "cx", "cy", "rxy",
-                 "tokens", "material", "sub", "guessed", "rc", "re", "rin", "damaged", "ac")
+                 "tokens", "material", "sub", "guessed", "rc", "re", "rin", "damaged", "ac", "geo")
 
     def __init__(self):
         self.sockets = []
@@ -90,6 +90,7 @@ class Mod:
         self.rin = None
         self.damaged = False
         self.ac = None        # wall AC spot on a window: None = default, (across, height) shares, False = no AC
+        self.geo = ""         # digest of the module's geometry and materials (lighting.py reuses lit copies by it)
 
 
 class Kit:
@@ -128,6 +129,7 @@ class Kit:
         self.lit_names = []      # lit copies' collection names, in instance list order after the modules
         self.lit_mats = set()    # names of the lit glass materials in use
         self.lit_synced = False
+        self.struct = None       # kit_structure() when read: tells a real kit edit from Blender re-tagging collections
 
     def role(self, r):
         return self.by_role.get(r, [])
@@ -150,6 +152,23 @@ def kit_signature(root, legacy=False):
         visit(ch)
     parts.append(len(root.objects))
     return hashlib.md5(repr(tuple(parts)).encode("utf-8")).hexdigest()
+
+
+def kit_structure(root):
+    """Which collections and objects make up the kit, by name. Blender flags every collection as changed whenever
+    any object in the file is added or removed, so the depsgraph handler compares this and kit_signature() with the
+    kit as it was read to tell a real edit of the kit from that noise."""
+    h = hashlib.md5()
+
+    def visit(c):
+        h.update(c.name.encode("utf-8") + b"\x00")
+        for o in c.objects:
+            h.update(o.name.encode("utf-8") + b"\x01")
+        h.update(b"\x02")
+        for ch in c.children:
+            visit(ch)
+    visit(root)
+    return h.hexdigest()
 
 
 def collect_modules(root):
@@ -281,6 +300,10 @@ def build_kit(root):
     scale = kp.scale if kp.scale_mode == "CUSTOM" else 1.0
     A = Matrix.Rotation(rot, 4, "Z") @ Matrix.Diagonal((scale, scale, scale, 1.0))
     measured = []
+    # forget what this kit was made of last time: renamed or removed pieces must not keep flagging it
+    for table in (_state["kit_objects"], _state["kit_cols"]):
+        for k in [k for k, v in table.items() if v == root.name]:
+            del table[k]
     for col, path in found:
         r = _measure(col, A, dg)
         if r is None:
@@ -303,9 +326,10 @@ def build_kit(root):
 
     offset_mods = []
     kit.geo_sig = hashlib.md5("|".join(col.name + ":" + r[5] for col, _, r in measured).encode()).hexdigest()
-    for col, path, (lo, hi, sockets, material, xy, _geo) in measured:
+    for col, path, (lo, hi, sockets, material, xy, geo) in measured:
         m = Mod()
         m.name = col.name
+        m.geo = geo
         m.lo, m.hi = lo, hi
         m.material = material
         props = col.aa_module
@@ -549,6 +573,7 @@ def build_kit(root):
                             "UVMap; Fix UV Map Names tidies the kit")
     kit.sig = kit_signature(root)
     kit.sig_v1 = kit_signature(root, legacy=True)
+    kit.struct = kit_structure(root)
     kit.version = _state["kit_version"]
     return kit
 

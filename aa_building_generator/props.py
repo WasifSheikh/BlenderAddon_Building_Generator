@@ -4,6 +4,7 @@ import bpy
 
 from .common import GROUND_DEFAULT_ITEMS, _state
 from .naming import FLOOR_DEFS, ROLE_DEFS
+from .kit import _kit_roots
 from .runtime import invalidate_kits, request
 from .tuning import AC_ALONG, AC_Z
 
@@ -13,7 +14,14 @@ def _upd_building(self, context):
 
 
 def _upd_kit(self, context):
-    invalidate_kits(None)
+    """A module's or kit's setting changed: re-read only the kit(s) holding it, not every kit in the file."""
+    col = self.id_data
+    roots = [r for r in _kit_roots() if col == r or col in r.children_recursive]
+    if not roots:
+        invalidate_kits(None)     # not part of a kit in use (yet): nothing cached to keep
+        return
+    for r in roots:
+        invalidate_kits(r.name)
 
 
 LAYOUT_ITEMS = [

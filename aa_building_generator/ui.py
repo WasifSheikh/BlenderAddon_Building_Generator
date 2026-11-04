@@ -20,6 +20,7 @@ from .naming import ROLE_DEFS, ROLE_LABEL
 from .kit import _in_tree
 from .outline import read_outline
 from .operators import _active_kit, _in_view_layer, bake_state, existing_bake, live_source
+from .runtime import outline_key
 
 
 def _floor_ranges(s):
@@ -467,7 +468,27 @@ class AAB_PT_kit(bpy.types.Panel):
 _draw_handles = []
 
 
+_overlay_cache = {"key": None, "snap": None, "val": ([], [])}
+
+
 def _overlay_data(obj):
+    """Side lines and labels for the Edit Mode overlay. Both draw handlers ask for them on every redraw, so they are
+    kept until the outline, the object's placement or the settings they show change."""
+    s = obj.aa_building
+    snap = _state.get("snap", {}).get(obj.name) if s.rigid else None
+    try:
+        key = (obj.name, outline_key(obj), tuple(tuple(r) for r in obj.matrix_world), s.ground_default, s.rigid)
+    except Exception:
+        key = None
+    c = _overlay_cache
+    if key is not None and c["key"] == key and c["snap"] is snap:
+        return c["val"]
+    val = _overlay_build(obj)
+    c["key"], c["snap"], c["val"] = key, snap, val
+    return val
+
+
+def _overlay_build(obj):
     try:
         loops, sides, _ = read_outline(obj)
     except Exception:

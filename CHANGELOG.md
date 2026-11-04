@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.6.1 (2026-11-04)
+
+Performance fixes: a file with several live buildings and night lighting no longer lags.
+
+- **Endless rebuild loop.** Remaking the lit window copies adds and removes objects, and Blender then flags every
+  collection in the file as changed. The add-on read that as "every kit was edited", re-read all kits, rebuilt every
+  building and remade the lit copies again, forever, even with nothing touched. A flagged kit collection now only
+  counts when the kit really changed (its modules, objects or settings).
+- Adding or deleting any object in the file no longer re-reads every kit and rebuilds every building.
+- Lit copies are kept when the module they copy hasn't changed; only an edited glazed module gets a new copy.
+  Before, every kit read (any kit edit, every undo) deleted and re-made all of them.
+- Changing a module's category, floor, frequency or AC spot, or a kit setting, re-reads only that kit instead of
+  every kit in the file.
+- The Edit Mode side overlay reads the outline once per change instead of twice per redraw.
+
 ## 1.6.0 (2026-11-04)
 
 - **Night lighting.** New Night lighting box: **Lit windows** and **Lit shop fronts** light a share of the windows,
