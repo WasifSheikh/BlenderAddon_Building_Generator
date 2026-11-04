@@ -7,6 +7,7 @@ from mathutils import Matrix, Vector
 
 from .common import GROUND_DEFAULT_STYLE, STYLE_AUTO, STYLE_OPEN, STYLE_SHOP, STYLE_WINDOWS, _rng
 from .geometry import MAT_FLOOR, MAT_PARAPET, MAT_ROOF, MAT_WALL, Proc, _hull2d, offset_loop
+from .lighting import lit_kind
 from .outline import read_outline
 from .tuning import BELT_DROP, FLOOR_SLAB_T, PARAPET_FALLBACK_H, PARAPET_FALLBACK_T
 from .fitting import _copy_mod, weighted_choice
@@ -50,6 +51,7 @@ class Plan(FacadeMixin, GroundMixin, LineMixin, ExtrasMixin, DamageMixin, Areawa
         self.s = s
         self.kit = kit
         self.points = []   # (pos, index, yaw, scale)
+        self.lit = set()   # indices into self.points of windows / shop fronts with the light on
         self.proc = Proc()
         self.warnings = []
         self.count = 0
@@ -70,7 +72,21 @@ class Plan(FacadeMixin, GroundMixin, LineMixin, ExtrasMixin, DamageMixin, Areawa
             return
         if self.dmg > 0 and self.kit is not None and self.kit.damaged:
             m = self.damaged_variant(m, pos)
+        if self.is_lit(m, pos):
+            self.lit.add(len(self.points))
         self.points.append((Vector(pos), m.index, yaw, (sx, sy, sz)))
+
+    def is_lit(self, m, pos):
+        """Night lighting: is this window / shop front lit? Each one draws its own number, so a higher share only
+        adds lights, and the modules themselves never change."""
+        s = self.s
+        kind = lit_kind(m) if s is not None else None
+        if kind is None:
+            return False
+        share = s.lit_windows if kind == "windows" else s.lit_shops
+        if share <= 0:
+            return False
+        return _rng(s.seed, s.lit_variation, "lit", round(pos[0], 2), round(pos[1], 2), round(pos[2], 2)).random() < share
 
     def pool(self, role, floor):
         k = self.kit

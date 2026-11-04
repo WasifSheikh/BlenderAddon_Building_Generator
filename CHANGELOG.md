@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.6.0 (2026-11-04)
+
+- **Night lighting.** New Night lighting box: **Lit windows** and **Lit shop fronts** light a share of the windows,
+  storefronts and glazed doors, and **Light pattern** picks other ones. No extra modules are needed: each glazed
+  module gets a hidden lit copy whose glass is `<glass>_Lit` (made from the glass material, glowing in Blender
+  too). In Unity, give `Glass_Lit` the emissive texture. Raising the share only adds lights, damaged windows stay
+  dark, and both kinds of bake and the FBX export carry the lit material.
+  - Kit > Night lighting: choose the kit's **Glass** material when it isn't named like glass, or one **Lit glass**
+    material for everything.
+- Fixes
+  - A building copied with Shift+D (or copy / paste) no longer shares the original's bake: before, baking the copy
+    overwrote the original's baked copy while the original still showed it as up to date.
+  - The mesh bake and the instance bake are tracked separately: re-baking one no longer marks the other as up to
+    date. Update Changed Bakes re-bakes only the stale one, so hand edits in an up-to-date bake are kept.
+  - Editing a kit module's geometry or materials now marks the bakes made from it as changed. (Bakes made with
+    1.5.0 keep the 1.5.0 check until they are baked again.)
+  - Baking or exporting a building in a hidden or excluded collection works (before, it could export an empty
+    mesh). One building that fails no longer stops an export of several; the report names it.
+  - The Buildings panel's "Update N Changed Bakes" counts only the buildings it can update (in this view layer).
+- Self-test: 3 lighting cases and checks for the fixes above (41 cases).
+
 ## 1.5.0 (2026-11-02)
 
 - **Every building stays live.** Keep as many adjustable buildings in a file as you like and bake each one

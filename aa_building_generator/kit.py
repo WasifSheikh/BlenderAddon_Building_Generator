@@ -118,18 +118,27 @@ class Kit:
         self.loose = []
         self.version = 0
         self.sig = None
+        self.sig_v1 = None
         self.default_radius = None
         self.uv_issue = False
         self.damaged = {}        # (role, width cm) -> damaged variants of that module
         self.by_name = {}        # module (collection) name -> Mod, frequency 0 included
+        self.geo_sig = ""        # digest of every module's geometry and materials (bakes go stale when it changes)
+        self.lit = {}            # module index -> instance list index of its lit copy (see lighting.py)
+        self.lit_names = []      # lit copies' collection names, in instance list order after the modules
+        self.lit_mats = set()    # names of the lit glass materials in use
+        self.lit_synced = False
 
     def role(self, r):
         return self.by_role.get(r, [])
 
 
-def kit_signature(root):
+def kit_signature(root, legacy=False):
+    """legacy: the 1.5.0 signature (no lighting materials), to compare with bakes made before 1.6.0."""
     kp = root.aa_kit
     parts = [root.name, kp.front, kp.scale_mode, round(kp.scale, 6)]
+    if not legacy:
+        parts += [kp.glass_material.name if kp.glass_material else None, kp.lit_material.name if kp.lit_material else None]
 
     def visit(c):
         p = c.aa_module
@@ -186,6 +195,7 @@ def _measure(col, A, dg):
     mat_area = {}
     count = 0
     xys = []
+    geo = hashlib.md5()
     for o, M in _iter_geometry(col, base):
         me = None
         eo = None
@@ -206,6 +216,8 @@ def _measure(col, A, dg):
             lo = np.minimum(lo, pts.min(axis=0))
             hi = np.maximum(hi, pts.max(axis=0))
             xys.append(pts[:, :2].copy())
+            geo.update(o.name.encode())
+            geo.update((np.round(pts, 4) + 0.0).astype(np.float32).tobytes())
             count += n
             np_ = len(me.polygons)
             if np_:
@@ -218,6 +230,8 @@ def _measure(col, A, dg):
                     if 0 <= idx < len(slots) and slots[idx].material:
                         mat = slots[idx].material.name
                         mat_area[mat] = mat_area.get(mat, 0.0) + float(areas[mi == idx].sum())
+                geo.update(repr(sorted((int(i), slots[i].material.name if 0 <= i < len(slots) and slots[i].material else "")
+                                       for i in np.unique(mi))).encode())
         except Exception:
             continue
         finally:
@@ -239,7 +253,7 @@ def _measure(col, A, dg):
     xy = np.concatenate(xys) if xys else np.zeros((0, 2))
     if len(xy) > 6000:
         xy = xy[:: len(xy) // 6000 + 1]
-    return Vector(lo), Vector(hi), sockets, material, xy
+    return Vector(lo), Vector(hi), sockets, material, xy, geo.hexdigest()
 
 
 def _mode(values):
@@ -288,7 +302,8 @@ def build_kit(root):
     kit.scale = scale
 
     offset_mods = []
-    for col, path, (lo, hi, sockets, material, xy) in measured:
+    kit.geo_sig = hashlib.md5("|".join(col.name + ":" + r[5] for col, _, r in measured).encode()).hexdigest()
+    for col, path, (lo, hi, sockets, material, xy, _geo) in measured:
         m = Mod()
         m.name = col.name
         m.lo, m.hi = lo, hi
@@ -533,6 +548,7 @@ def build_kit(root):
         kit.warnings.append("UV maps have different names (" + ", ".join(sorted(names)) + "): bakes merge them into one "
                             "UVMap; Fix UV Map Names tidies the kit")
     kit.sig = kit_signature(root)
+    kit.sig_v1 = kit_signature(root, legacy=True)
     kit.version = _state["kit_version"]
     return kit
 

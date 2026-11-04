@@ -11,7 +11,8 @@ from .naming import tokens
 from .kit import _inside_kit, _kit_meshes, _main_uv, _safe_collection, get_kit
 from .planner import Plan
 from .nodes import _set_input, building_materials, proc_mesh
-from .runtime import building_digest, invalidate_kits, rebuild, request, request_all
+from .runtime import bake_matches, building_digest, invalidate_kits, rebuild, request, request_all
+from .lighting import entry_name, instance_indices
 from .export import realized_mesh
 
 
@@ -335,15 +336,28 @@ def existing_bake(s, mode):
     return c if c is not None and _col_in_a_scene(c) else None
 
 
-def bake_state(obj):
-    """"none" (never baked), "ok" (the bake matches the building) or "changed" (edited since the bake)."""
+def bake_sig_of(s, mode):
+    """The stored digest of this building's mesh or instance bake. Bakes made before 1.6.0 share one."""
+    return s.bake_sig if mode == "MESH" else (s.bake_sig_inst or s.bake_sig)
+
+
+def set_bake_sig(obj, mode):
     s = obj.aa_building
-    if existing_bake(s, "MESH") is None and existing_bake(s, "INSTANCES") is None:
+    d = building_digest(obj) or ""
+    if mode == "MESH":
+        s.bake_sig = d
+    else:
+        s.bake_sig_inst = d
+
+
+def bake_state(obj):
+    """"none" (never baked), "ok" (every bake matches the building) or "changed" (edited since a bake).
+    The mesh bake and the instance bake are checked separately: re-baking one leaves the other stale."""
+    s = obj.aa_building
+    modes = [m for m in ("MESH", "INSTANCES") if existing_bake(s, m) is not None]
+    if not modes:
         return "none"
-    d = building_digest(obj)
-    if d is None:
-        return "ok"           # not rebuilt yet this session: nothing to compare with
-    return "ok" if d == s.bake_sig else "changed"
+    return "ok" if all(bake_matches(obj, bake_sig_of(s, m)) for m in modes) else "changed"
 
 
 def bake_mesh(context, obj, scene, this_scene=True, new_copy=False):
@@ -394,12 +408,12 @@ def bake_instances(obj, scene, this_scene=True, new_copy=False):
     root.matrix_world = M
     if kit is not None:
         K = Matrix.Rotation(kit.rot, 4, "Z") @ Matrix.Diagonal((kit.scale, kit.scale, kit.scale, 1.0))
-        for pos, index, yaw, scl in plan.points:
-            m = kit.mods[index]
-            col = bpy.data.collections.get(m.name)
+        for (pos, index, yaw, scl), entry in zip(plan.points, instance_indices(plan, kit)):
+            cname = entry_name(kit, entry)        # lit windows instance their lit copy
+            col = bpy.data.collections.get(cname)
             if col is None:
                 continue
-            e = bpy.data.objects.new(m.name, None)
+            e = bpy.data.objects.new(kit.mods[index].name, None)
             e.instance_type = "COLLECTION"
             e.instance_collection = col
             e.empty_display_size = 0.2
@@ -485,7 +499,7 @@ class AAB_OT_bake(bpy.types.Operator):
             baked = bake_instances(obj, scene, this_scene, self.new_copy)
         else:
             baked = bake_mesh(context, obj, scene, this_scene, self.new_copy)
-        obj.aa_building.bake_sig = building_digest(obj) or ""
+        set_bake_sig(obj, self.mode)
         if context.scene in baked.users_scene:
             if self.hide_live:
                 obj.hide_set(True)
@@ -522,13 +536,16 @@ class AAB_OT_bake_changed(bpy.types.Operator):
             if not (has_mesh or has_inst) or not _in_view_layer(context, obj):
                 continue
             rebuild(obj, force=True)
-            if not self.everything and bake_state(obj) == "ok":
+            redo = [m for m, has in (("MESH", has_mesh), ("INSTANCES", has_inst))
+                    if has and (self.everything or not bake_matches(obj, bake_sig_of(s, m)))]
+            if not redo:
                 continue
-            if has_mesh:
-                bake_mesh(context, obj, context.scene)
-            if has_inst:
-                bake_instances(obj, context.scene)
-            s.bake_sig = building_digest(obj) or ""
+            for mode in redo:       # only the stale ones: an up-to-date bake keeps any hand edits
+                if mode == "MESH":
+                    bake_mesh(context, obj, context.scene)
+                else:
+                    bake_instances(obj, context.scene)
+                set_bake_sig(obj, mode)
             done += 1
         self.report({"INFO"}, f"Updated the bake of {done} building(s)" if done else "Every bake is up to date")
         return {"FINISHED"}
@@ -606,6 +623,7 @@ class AAB_OT_duplicate(bpy.types.Operator):
         s.baked_obj = None
         s.baked_col = None
         s.bake_sig = ""
+        s.bake_sig_inst = ""
         s.status = ""
         if self.new_variation:
             s.seed = random.randint(1, 99999)
@@ -622,7 +640,7 @@ class AAB_OT_duplicate(bpy.types.Operator):
 
 
 # settings that belong to one building only and are never copied between buildings
-NO_COPY = {"rna_type", "name", "enabled", "data_obj", "baked_obj", "baked_col", "bake_sig", "status",
+NO_COPY = {"rna_type", "name", "enabled", "data_obj", "baked_obj", "baked_col", "bake_sig", "bake_sig_inst", "status",
            "segment_index", "show_extras", "segments", "seed"}
 
 

@@ -89,6 +89,24 @@
   "proc_faces": 2036,
   "status": "161 pieces \u00b7 3 floors \u00b7 10.4 m"
  },
+ "lit_damaged": {
+  "hash": "6506f0e1968a4749a1709b829165dc86",
+  "pieces": 201,
+  "proc_faces": 754,
+  "status": "201 pieces \u00b7 4 floors \u00b7 13.6 m | 45 lit"
+ },
+ "lit_pattern": {
+  "hash": "e9570ad7c9a9cfd0190366e8d615e843",
+  "pieces": 286,
+  "proc_faces": 84,
+  "status": "286 pieces \u00b7 5 floors \u00b7 16.8 m | 33 lit"
+ },
+ "lit_windows": {
+  "hash": "1466321fcd919c34095a75f33a5b1e7a",
+  "pieces": 337,
+  "proc_faces": 56,
+  "status": "337 pieces \u00b7 6 floors \u00b7 20.0 m | 82 lit | Rigid modules: cornice / parapet stretched to fit on 12 run(s)"
+ },
  "pilasters": {
   "hash": "b8b69f85544b40965f6f80ee0b6a1179",
   "pieces": 382,

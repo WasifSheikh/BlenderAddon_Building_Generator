@@ -47,6 +47,11 @@ def ensure_data(obj):
     if data is None:
         if s.data_obj is not None:
             s.seed = random.randint(1, 99999)  # a duplicate gets its own variation
+            # ... and no bake: the copied links point at the original's baked copies, which it must never touch
+            s.baked_obj = None
+            s.baked_col = None
+            s.bake_sig = ""
+            s.bake_sig_inst = ""
         me = bpy.data.meshes.new("AA Data | " + obj.name)
         data = bpy.data.objects.new("AA Data | " + obj.name, me)
         s.data_obj = data
@@ -58,7 +63,8 @@ def ensure_data(obj):
     return data
 
 
-def write_data(data, plan, mats):
+def write_data(data, plan, mats, indices=None):
+    """indices: instance list index per plan point (lit windows point at their lit copy); default the module's."""
     me = data.data
     proc = plan.proc
     verts = [tuple(v) for v in proc.v]
@@ -84,7 +90,7 @@ def write_data(data, plan, mats):
     flag = me.attributes.new("aa_inst", "BOOLEAN", "POINT")
     flag.data.foreach_set("value", [False] * nproc + [True] * len(plan.points))
     idx = me.attributes.new("aa_module", "INT", "POINT")
-    idx.data.foreach_set("value", [0] * nproc + [p[1] for p in plan.points])
+    idx.data.foreach_set("value", [0] * nproc + (list(indices) if indices is not None else [p[1] for p in plan.points]))
     rot = me.attributes.new("aa_rot", "FLOAT_VECTOR", "POINT")
     rot.data.foreach_set("vector", [0.0] * (nproc * 3) + [c for p in plan.points for c in (0.0, 0.0, p[2])])
     sc = me.attributes.new("aa_scale", "FLOAT_VECTOR", "POINT")
@@ -140,7 +146,8 @@ def _get_input(mod, name):
 
 def ensure_group(kit, root):
     name = "AA Building | " + (root.name if root else "no kit")
-    sig = "v2|" + (str((kit.sig, round(kit.rot, 4), round(kit.scale, 6), tuple(m.name for m in kit.mods))) if kit else "none")
+    sig = "v3|" + (str((kit.sig, round(kit.rot, 4), round(kit.scale, 6), tuple(m.name for m in kit.mods),
+                        tuple(kit.lit_names))) if kit else "none")
     g = bpy.data.node_groups.get(name)
     if g is not None and g.get("aa_sig") == sig:
         return g
@@ -187,19 +194,20 @@ def ensure_group(kit, root):
         scl.data_type = "FLOAT_VECTOR"
         scl.inputs["Name"].default_value = "aa_scale"
         idx.location, rot.location, scl.location = (-800, -300), (-800, -450), (-800, -600)
-        # every module becomes one entry of an instance list, in kit.mods order (index = aa_module)
+        # every module becomes one entry of an instance list, in kit.mods order (index = aa_module),
+        # followed by the lit copies of glazed modules (night lighting, see lighting.py)
         g2i = nodes.new("GeometryNodeGeometryToInstance")
         g2i.location = (-250, 0)
         infos = []
-        for i, m in enumerate(kit.mods):
+        for i, cname in enumerate([m.name for m in kit.mods] + list(kit.lit_names)):
             ci = nodes.new("GeometryNodeCollectionInfo")
             ci.transform_space = "ORIGINAL"
-            col = bpy.data.collections.get(m.name)
+            col = bpy.data.collections.get(cname)
             if col is not None:
                 ci.inputs["Collection"].default_value = col
             ci.inputs["Separate Children"].default_value = False
             ci.inputs["Reset Children"].default_value = False
-            ci.label = m.name[:60]
+            ci.label = cname[:60]
             ci.location = (-500, -160 * i)
             infos.append(ci)
         for ci in reversed(infos):   # a multi-input socket lists its newest link first

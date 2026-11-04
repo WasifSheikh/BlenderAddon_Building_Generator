@@ -9,6 +9,7 @@ from bpy.app.handlers import persistent
 
 from .common import _state, is_building
 from .kit import _in_tree, get_kit
+from .lighting import ensure_lit_variants, instance_indices
 from .planner import Plan
 from .nodes import building_materials, ensure_data, ensure_group, ensure_modifier, write_data
 
@@ -87,6 +88,7 @@ def _on_load(_):
     _state["kit_objects"].clear()
     _state["kit_cols"].clear()
     _state.setdefault("digest", {}).clear()
+    _state.setdefault("digest_v1", {}).clear()
     request_all()
 
 
@@ -97,7 +99,11 @@ def _on_undo(_):
     request_all()
 
 
-def settings_key(s):
+# settings added since 1.5.0: appended at the end, so the 1.5.0 key (and the digest of bakes made with it) is kept
+NEW_KEYS = ("lit_windows", "lit_shops", "lit_variation")
+
+
+def settings_key(s, legacy=False):
     keys = ("floors", "seed", "ground_default", "vary_floors", "wall_mix", "round_all", "corner_radius",
             "corner_pieces", "cornice", "belt", "parapet", "roof_props", "ac", "awnings", "signs", "sign_chance", "lights",
             "balconies", "pipes", "quoins", "pilasters", "pilaster_ground", "shop_units", "shop_unit_max", "closed_shops",
@@ -111,8 +117,9 @@ def settings_key(s):
     refs = tuple(nm(getattr(s, k)) for k in ("cornice_module", "belt_module", "divider_module", "ground_module",
                                              "ground_corner_module", "ground_door"))
     segs = tuple((g.floors, g.layout, nm(g.module), nm(g.corner_module), round(g.height, 4), g.belt_below) for g in s.segments)
-    return vals + refs + segs + (s.kit.name if s.kit else None, s.wall_material.name if s.wall_material else None,
-                                 s.roof_material.name if s.roof_material else None)
+    key = vals + refs + segs + (s.kit.name if s.kit else None, s.wall_material.name if s.wall_material else None,
+                                s.roof_material.name if s.roof_material else None)
+    return key if legacy else key + tuple(getattr(s, k) for k in NEW_KEYS)
 
 
 def outline_key(obj):
@@ -150,10 +157,33 @@ def outline_key(obj):
     return h.hexdigest()
 
 
-def building_digest(obj):
-    """What the building looks like now (outline, settings, kit), or None before its first rebuild.
-    Stored on the building when it is baked, so a bake that no longer matches can be found."""
-    return _state.get("digest", {}).get(obj.name)
+DIGEST_V = "v2:"   # v2 also covers the kit's module geometry; older bakes stored the plain v1 digest
+
+
+def building_digest(obj, legacy=False):
+    """What the building looks like now (outline, settings, kit and its geometry), or None before its first
+    rebuild. Stored on the building when it is baked, so a bake that no longer matches can be found.
+    legacy: the 1.5.0 digest (no kit geometry), to compare with bakes made before 1.6.0."""
+    return _state.get("digest_v1" if legacy else "digest", {}).get(obj.name)
+
+
+def bake_matches(obj, stored):
+    """Does a stored bake digest match the building as it is now? Unknown (not rebuilt yet) counts as a match."""
+    if stored.startswith(DIGEST_V):
+        d = building_digest(obj)
+        return d is None or d == stored
+    if building_digest(obj) is None:
+        return True
+    return building_digest(obj, legacy=True) == stored   # a 1.5.0 bake: None (lit settings used since) = changed
+
+
+def kit_uses_lights(root):
+    """Does any building on this kit have lit windows? Then the kit's lit copies are kept up to date."""
+    for o in bpy.data.objects:
+        b = getattr(o, "aa_building", None)
+        if b is not None and b.enabled and b.kit == root and (b.lit_windows > 0 or b.lit_shops > 0):
+            return True
+    return False
 
 
 def rebuild(obj, force=False):
@@ -173,12 +203,20 @@ def rebuild(obj, force=False):
     plan = Plan(obj, s, kit).run()
     _state.setdefault("snap", {})[obj.name] = plan.snap_info if plan.rigid else None
     mats = building_materials(s, kit, (max(plan.proc.m) + 1) if plan.proc.m else 3)
-    write_data(data, plan, mats)
+    if kit is not None and kit_uses_lights(s.kit):
+        ensure_lit_variants(kit, s.kit)    # for every building of the kit: they share one node group
+    write_data(data, plan, mats, instance_indices(plan, kit))
     group = ensure_group(kit, s.kit)
     ensure_modifier(obj, group, data)
     msg = []
     if plan.sides:
         msg.append(f"{len(plan.points)} pieces · {s.floors} floor{'s' if s.floors > 1 else ''} · {plan.H + 0.02:.1f} m")
+        if plan.lit and kit is not None:
+            lit = sum(1 for k in plan.lit if plan.points[k][1] in kit.lit)
+            msg.append(f"{lit} lit")
+    if (s.lit_windows > 0 or s.lit_shops > 0) and kit is not None and kit.mods and not kit.lit:
+        plan.warnings.append("Lit windows: no glass found in the window modules (name the material *Glass*, "
+                             "or pick it under Kit > Night lighting)")
     extra = []
     if any(abs(v - 1.0) > 1e-4 for v in obj.scale):
         extra.append("Object is scaled: apply scale (Ctrl+A) so modules are not stretched")
@@ -190,5 +228,12 @@ def rebuild(obj, force=False):
         s.status = status
     _state["sigs"][obj.name] = (outline_key(obj), settings_key(s), kit.sig if kit else None,
                                 kit.version if kit else None, data.name, True, scl)
-    _state.setdefault("digest", {})[obj.name] = hashlib.md5(repr((sig[0], sig[1], sig[2], scl)).encode()).hexdigest()
+    _state.setdefault("digest", {})[obj.name] = DIGEST_V + hashlib.md5(
+        repr((sig[0], sig[1], sig[2], scl, kit.geo_sig if kit else None)).encode()).hexdigest()
+    # the 1.5.0 digest, so bakes made with 1.5.0 still compare correctly (only when the new settings are unused)
+    if not any(getattr(s, k) for k in NEW_KEYS):
+        _state.setdefault("digest_v1", {})[obj.name] = hashlib.md5(
+            repr((sig[0], settings_key(s, legacy=True), kit.sig_v1 if kit else None, scl)).encode()).hexdigest()
+    else:
+        _state.setdefault("digest_v1", {}).pop(obj.name, None)
     _state["failed"].pop(obj.name, None)

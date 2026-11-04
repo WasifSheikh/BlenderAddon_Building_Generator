@@ -67,28 +67,40 @@ def merge_uv_layers(me, target="UVMap"):
 
 def realized_mesh(context, obj):
     """The live building as one real mesh (modules made real), with one UV map and without the generator's
-    own attributes. Works on hidden buildings too (they are shown for a moment so they are evaluated)."""
+    own attributes. Works on hidden buildings too, and on buildings in hidden or excluded collections: they are
+    shown for a moment (linked to the scene's own collection if need be) so they are evaluated."""
     mod = obj.modifiers.get(MOD_NAME)
     try:
         hidden = obj.hide_get()
     except RuntimeError:        # not in this view layer
         hidden = False
     off = obj.hide_viewport
+    linked = False
     if hidden:
         obj.hide_set(False)
     if off:
         obj.hide_viewport = False
     _set_input(mod, "Realize", True)
     try:
+        if not obj.visible_get(view_layer=context.view_layer) and obj.name not in context.scene.collection.objects:
+            context.scene.collection.objects.link(obj)     # its collections are hidden or excluded
+            linked = True
         context.view_layer.update()
+        if not obj.visible_get(view_layer=context.view_layer):
+            raise RuntimeError(f"'{obj.name}' can't be shown in this view layer, so it can't be evaluated")
         dg = context.evaluated_depsgraph_get()
         me = bpy.data.meshes.new_from_object(obj.evaluated_get(dg), preserve_all_data_layers=True, depsgraph=dg)
     finally:
         _set_input(mod, "Realize", False)
+        if linked:
+            context.scene.collection.objects.unlink(obj)
         if off:
             obj.hide_viewport = True
         if hidden:
-            obj.hide_set(True)
+            try:
+                obj.hide_set(True)
+            except RuntimeError:
+                pass
     for nm in [a.name for a in me.attributes if a.name.startswith("aa_")]:
         try:
             me.attributes.remove(me.attributes[nm])
@@ -145,12 +157,12 @@ class AAB_OT_export_unity(bpy.types.Operator):
         if context.object is not None and context.object.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
         prev_sel, prev_act = list(context.selected_objects), context.view_layer.objects.active
-        done = []
+        done, failed = [], []
         try:
             for obj in buildings:
-                rebuild(obj, force=True)
                 temp = []
                 try:
+                    rebuild(obj, force=True)
                     name = clean_name(obj.name)
                     me = realized_mesh(context, obj)
                     temp.append(bpy.data.objects.new(name, me))
@@ -170,6 +182,8 @@ class AAB_OT_export_unity(bpy.types.Operator):
                     path = os.path.join(folder, name + ".fbx")
                     bpy.ops.export_scene.fbx(filepath=path, **UNITY_FBX)
                     done.append(path)
+                except Exception as e:      # one building that fails doesn't stop the others
+                    failed.append(f"{obj.name}: {e}")
                 finally:
                     for o in temp:
                         data = o.data
@@ -189,5 +203,8 @@ class AAB_OT_export_unity(bpy.types.Operator):
             except ReferenceError:
                 pass
         _state["last_export"] = done
-        self.report({"INFO"}, f"Exported {len(done)} building(s) to {folder}")
+        if failed:
+            self.report({"WARNING"}, f"Exported {len(done)} building(s) to {folder}; failed: " + "; ".join(failed))
+        else:
+            self.report({"INFO"}, f"Exported {len(done)} building(s) to {folder}")
         return {"FINISHED"}

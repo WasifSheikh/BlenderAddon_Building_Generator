@@ -17,6 +17,7 @@ Package layout (each module only imports the ones listed before it)
   naming      categories and name parsing
   geometry    2D helpers, procedural mesh builder
   kit         kit analysis
+  lighting    night lighting: lit copies of glazed modules (glass swapped for a lit material)
   outline     footprint reading
   tuning      named tuning values (stretch limits, extra heights, margins)
   fitting     filling a span with modules
@@ -41,8 +42,8 @@ Package layout (each module only imports the ones listed before it)
 
 if "bpy" in locals():   # "Reload Scripts" / re-enable: pick up edits in every module, in dependency order
     import importlib
-    from . import common, naming, geometry, kit, outline, tuning, fitting, storefronts, damage, facades, lines, extras, areaways, rigid, planner, nodes, runtime, props, export, operators, validate, sample_kit, ui, selftest
-    for _m in (common, naming, geometry, kit, outline, tuning, fitting, storefronts, damage, facades, lines, extras, areaways, rigid, planner, nodes, runtime, props, export, operators, validate, sample_kit, ui, selftest):
+    from . import common, naming, geometry, kit, lighting, outline, tuning, fitting, storefronts, damage, facades, lines, extras, areaways, rigid, planner, nodes, runtime, props, export, operators, validate, sample_kit, ui, selftest
+    for _m in (common, naming, geometry, kit, lighting, outline, tuning, fitting, storefronts, damage, facades, lines, extras, areaways, rigid, planner, nodes, runtime, props, export, operators, validate, sample_kit, ui, selftest):
         importlib.reload(_m)
 
 import bpy

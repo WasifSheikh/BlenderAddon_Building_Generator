@@ -5,7 +5,20 @@ building, live, from a kit of modules. Made for **Alien Armageddon**.
 
 Draw or edit the outline and the building follows: each side gets the best mix of the kit's windows,
 storefronts, doors, dividers, corner pieces, cornices and parapets, plus extras (signs, awnings, AC units,
-fire escapes, damage). Buildings bake to module instances or one mesh, and export to Unity as FBX.
+fire escapes, damage) and night lighting (lit windows). Buildings bake to module instances or one mesh, and export
+to Unity as FBX.
+
+### Night lighting
+
+No extra modules are needed for lit windows. **Lit windows** and **Lit shop fronts** (main panel, Night lighting)
+light a share of the windows and shop fronts; **Light pattern** picks other ones. For each glazed module the tool
+keeps a hidden copy (collection `AA Lit | <module>`) whose glass uses a lit material, `<glass>_Lit` (for example
+`Glass_Lit`), made from the glass material with an emission added so it also glows in Blender.
+
+- Glass is found by material name (`Glass`, `Glazing`, `Pane` ...). If the kit names its glass otherwise, pick it
+  under Kit > Night lighting > Glass. Pick a **Lit glass** material there to use one lit material for everything.
+- In Unity the baked or exported mesh has both materials: give `Glass_Lit` the emissive texture (and the normal
+  glass a dark one). Every lit window shares that one material, so it costs no extra draw calls per window.
 
 ## Repository layout
 
@@ -60,10 +73,11 @@ reloads in order.
 
 ### Self-test
 
-F3 > **AA Buildings: Self-Test** builds 35 reference buildings from the sample kit and compares their plans
+F3 > **AA Buildings: Self-Test** builds 41 reference buildings from the sample kit and compares their plans
 (which module goes where) with `tests/selftest_baseline.json`, so it does not depend on the Blender version.
 It also checks rules that must always hold: with Rigid modules on no facade module is stretched, snapped
-outlines need no filler strips, and window sides get no wall pieces on the upper floors.
+outlines need no filler strips, window sides get no wall pieces on the upper floors, lit windows match the asked
+share, and each building's bakes update only themselves.
 
 - New cases are added to the baseline automatically.
 - When a change to the output is intended, tick **Update baseline** in the redo panel and commit the
@@ -94,11 +108,11 @@ every push and pull request. To publish a version:
 2. Add a `## <version>` section at the top of `CHANGELOG.md`: it becomes the release notes.
 3. Commit, push, then tag and push the tag:
    ```
-   git tag v1.4.0
-   git push origin v1.4.0
+   git tag v1.6.0
+   git push origin v1.6.0
    ```
 
 The workflow checks that the tag matches the manifest, then publishes a GitHub release with the zip and
 `index.json`. Artists who added the repository URL above get the update offered in Blender.
-If the self-test fails, nothing is released: fix it, delete the tag (`git push --delete origin v1.4.0`,
-`git tag -d v1.4.0`) and tag again.
+If the self-test fails, nothing is released: fix it, delete the tag (`git push --delete origin v1.6.0`,
+`git tag -d v1.6.0`) and tag again.

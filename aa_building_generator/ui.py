@@ -19,7 +19,7 @@ from .common import (
 from .naming import ROLE_DEFS, ROLE_LABEL
 from .kit import _in_tree
 from .outline import read_outline
-from .operators import _active_kit, bake_state, existing_bake, live_source
+from .operators import _active_kit, _in_view_layer, bake_state, existing_bake, live_source
 
 
 def _floor_ranges(s):
@@ -95,7 +95,7 @@ class AAB_PT_buildings(bpy.types.Panel):
         col = l.column(align=True)
         for o in buildings:
             state = bake_state(o)
-            changed += state == "changed"
+            changed += state == "changed" and _in_view_layer(context, o)   # what Update Changed Bakes can reach
             baked += state != "none"
             row = col.row(align=True)
             op = row.operator("aab.select_building", text=o.name, icon="HOME", depress=(o == act))
@@ -121,6 +121,25 @@ class AAB_PT_buildings(bpy.types.Panel):
             r.scale_y = 0.7
             r.label(text="Bake up to date", icon="CHECKMARK")
             r.label(text="Edited since bake", icon="ERROR")
+
+
+def _draw_lighting(l, s):
+    """Night lighting: how many windows and shop fronts are lit, and which material to make emissive in Unity."""
+    b = l.box()
+    b.label(text="Night lighting", icon="LIGHT_POINT")
+    c = b.column(align=True)
+    c.prop(s, "lit_windows", slider=True)
+    c.prop(s, "lit_shops", slider=True)
+    r = b.row()
+    r.active = s.lit_windows > 0 or s.lit_shops > 0
+    r.prop(s, "lit_variation")
+    kit = _state["kits"].get(s.kit.name) if s.kit else None
+    if (s.lit_windows > 0 or s.lit_shops > 0) and kit is not None and kit.lit_mats:
+        sub = b.column(align=True)
+        sub.scale_y = 0.75
+        sub.label(text="In Unity, make these emissive:", icon="INFO")
+        for name in sorted(kit.lit_mats)[:4]:
+            sub.label(text="     " + name)
 
 
 def _draw_ac_spots(l, context, s):
@@ -334,6 +353,7 @@ class AAB_PT_main(bpy.types.Panel):
             b.label(text="Materials (empty = from kit)")
             b.prop(s, "wall_material", text="Walls")
             b.prop(s, "roof_material", text="Roof")
+        _draw_lighting(l, s)
         l.separator()
         row = l.row(align=True)
         row.scale_y = 1.3
@@ -380,6 +400,15 @@ class AAB_PT_kit(bpy.types.Panel):
         if kp.scale_mode == "CUSTOM":
             c.prop(kp, "scale")
         c.prop(kp, "grid")
+        b = l.box()
+        b.label(text="Night lighting", icon="LIGHT_POINT")
+        c = b.column(align=True)
+        c.prop(kp, "glass_material")
+        c.prop(kp, "lit_material")
+        kit_now = _state["kits"].get(root.name)
+        if kit_now is not None and kit_now.lit_synced:
+            b.label(text=f"{len(kit_now.lit)} glazed module(s) get lit copies" if kit_now.lit
+                    else "No glass found in the window / shop modules", icon="CHECKMARK" if kit_now.lit else "ERROR")
         l.operator("aab.check_kit", icon="VIEWZOOM")
         issues = _state.get("checks", {}).get(root.name)
         if issues is not None:

@@ -93,6 +93,13 @@ class AAB_KitProps(bpy.types.PropertyGroup):
     scale: bpy.props.FloatProperty(name="Scale", default=1.0, min=1e-5, update=_upd_kit)
     grid: bpy.props.FloatProperty(name="Grid", default=0.5, min=0.01, unit="LENGTH",
                                   description="Check Kit expects facade module widths to be multiples of this")
+    # night lighting (lighting.py): lit windows are copies of the modules with the glass swapped
+    glass_material: bpy.props.PointerProperty(name="Glass", type=bpy.types.Material, update=_upd_kit,
+                                              description="The window glass of this kit, swapped on lit windows "
+                                                          "(empty = every material with 'Glass' in its name)")
+    lit_material: bpy.props.PointerProperty(name="Lit glass", type=bpy.types.Material, update=_upd_kit,
+                                            description="Material for the glass of lit windows (empty = '<glass>_Lit', "
+                                                        "made from each glass material). Give it the emissive texture in Unity")
 
 
 def _divider_roles(self):
@@ -137,6 +144,13 @@ class AAB_BuildingProps(bpy.types.PropertyGroup):
     ac_shift_z: bpy.props.FloatProperty(name="Up / down", default=0.0, soft_min=-2.0, soft_max=2.0, unit="LENGTH",
                                         update=_upd_building,
                                         description="Move every wall AC unit on this building up or down")
+    lit_windows: bpy.props.FloatProperty(name="Lit windows", default=0.0, min=0, max=1, subtype="FACTOR", update=_upd_building,
+                                         description="Share of windows with the light on: their glass gets the lit material "
+                                                     "(raising it only adds lights, it never moves them)")
+    lit_shops: bpy.props.FloatProperty(name="Lit shop fronts", default=0.0, min=0, max=1, subtype="FACTOR", update=_upd_building,
+                                       description="Share of storefronts and glazed doors with the light on")
+    lit_variation: bpy.props.IntProperty(name="Light pattern", default=0, min=0, update=_upd_building,
+                                         description="Which windows are lit, without changing the modules")
     awnings: bpy.props.FloatProperty(name="Awnings", default=0.7, min=0, max=1, subtype="FACTOR", update=_upd_building)
     signs: bpy.props.BoolProperty(name="Shop signs", default=True, update=_upd_building)
     sign_chance: bpy.props.FloatProperty(name="Shop signs", default=1.0, min=0, max=1, subtype="FACTOR", update=_upd_building,
@@ -208,7 +222,8 @@ class AAB_BuildingProps(bpy.types.PropertyGroup):
     # this building's own baked copies: re-baking updates these and nothing else
     baked_obj: bpy.props.PointerProperty(type=bpy.types.Object)
     baked_col: bpy.props.PointerProperty(type=bpy.types.Collection)
-    bake_sig: bpy.props.StringProperty(description="What the building looked like when it was last baked")
+    bake_sig: bpy.props.StringProperty(description="What the building looked like when its mesh bake was last made")
+    bake_sig_inst: bpy.props.StringProperty(description="What the building looked like when its instance bake was last made")
     status: bpy.props.StringProperty()
     show_extras: bpy.props.BoolProperty(name="Details & extras", default=False)
 

@@ -90,7 +90,14 @@ CASES_15 = [
     ("ac_none", "RECT", 16, 11, {"floors": 4, "ac": 1.0, "_ac": {"*": ("NONE", 0.0, 0.0)}, "_no_ac": True}),
 ]
 
-CASES += CASES_14 + CASES_15
+# 1.6.0: night lighting. "_lit": (window share, shop share) the case must roughly show; damaged windows are never lit
+CASES_16 = [
+    ("lit_windows", "RECT", 22, 14, {"rigid": True, "floors": 6, "lit_windows": 0.5, "lit_shops": 1.0, "_lit": (0.5, 1.0)}),
+    ("lit_pattern", "L", 20, 16, {"floors": 5, "lit_windows": 0.3, "lit_variation": 4, "ground_default": "WINDOWS", "_lit": (0.3, 0.0)}),
+    ("lit_damaged", "RECT", 18, 12, {"floors": 4, "lit_windows": 1.0, "damage": 0.7, "_lit": (1.0, 0.0)}),
+]
+
+CASES += CASES_14 + CASES_15 + CASES_16
 
 # what buildings defaulted to before 1.4.0: older cases start from these, so they keep their baseline
 LEGACY = {"rigid": False, "wall_mix": 0.1}
@@ -184,7 +191,10 @@ def _signature(plan, kit):
     pts = sorted((tuple(_r(c) for c in p), re.sub(r"\.\d{3}$", "", kit.mods[i].name), _r(y, 4), tuple(_r(v) for v in s))
                  for p, i, y, s in plan.points)
     verts = sorted(tuple(_r(c) for c in v) for v in plan.proc.v)
-    blob = repr((pts, verts, sorted(len(f) for f in plan.proc.f), sorted(plan.proc.m))).encode()
+    parts = (pts, verts, sorted(len(f) for f in plan.proc.f), sorted(plan.proc.m))
+    if plan.lit:    # only cases with lit windows carry this, so older baselines stay valid
+        parts += (sorted(tuple(_r(c) for c in plan.points[k][0]) for k in plan.lit),)
+    blob = repr(parts).encode()
     return {"hash": hashlib.md5(blob).hexdigest(), "pieces": len(pts), "proc_faces": len(plan.proc.f)}
 
 
@@ -210,10 +220,45 @@ def _checks(plan, kit, opts):
             if not any(abs(p.z - (plan.levels[f] + plan.heights[f] * share + dz)) < 1e-3 for f in range(1, len(plan.heights))):
                 out.append(f"AC unit at {p.z:.3f} m is not at its custom height")
                 break
+    if "_lit" in opts:
+        out += _lit_checks(plan, kit, opts["_lit"])
     if opts.get("_no_upper_walls"):
         n = sum(1 for p, i, _, _ in plan.points if kit.mods[i].role == "wall" and p.z > plan.levels[1] - 0.01)
         if n:
             out.append(f"{n} wall module(s) on the upper floors of window sides")
+    return out
+
+
+def _lit_checks(plan, kit, shares):
+    """Night lighting: about the asked share is lit, damaged windows never are, raising the share only adds
+    lights, and lit windows instance a copy whose glass is the lit material."""
+    from .lighting import instance_indices, lit_kind
+    out = []
+    for kind, share in zip(("windows", "shops"), shares):
+        pts = [k for k, p in enumerate(plan.points) if lit_kind(kit.mods[p[1]]) == kind]
+        if share and len(pts) >= 8:
+            got = sum(1 for k in pts if k in plan.lit) / len(pts)
+            if abs(got - share) > 0.2:
+                out.append(f"{got:.0%} of {kind} lit, asked for {share:.0%}")
+    if any(kit.mods[plan.points[k][1]].damaged for k in plan.lit):
+        out.append("a damaged window is lit")
+    s = plan.s
+    keep = s.lit_windows
+    try:
+        s.lit_windows = keep * 0.5
+        fewer = Plan(plan.obj, s, kit).run().lit
+    finally:
+        s.lit_windows = keep
+    if not fewer <= plan.lit:
+        out.append("lowering Lit windows moved lights instead of only removing some")
+    entries = instance_indices(plan, kit)
+    if plan.lit and not any(entries[k] >= len(kit.mods) for k in plan.lit):
+        out.append("lit windows don't use their lit copies")
+    for name in kit.lit_names:
+        mats = {m.name for o in bpy.data.collections[name].all_objects if o.type == "MESH" for m in o.data.materials if m}
+        if not any(m.endswith("_Lit") for m in mats) or "AA Sample glass" in mats:
+            out.append(f"{name}: glass not swapped for the lit material ({sorted(mats)})")
+            break
     return out
 
 
@@ -248,7 +293,7 @@ def _run_cases(sc, cases, results, errors):
             o.location.x = 40.0 * len(results)
             s = o.aa_building
             s.seed = 1234
-            for k, v in (NEW_DEFAULTS if any(name == c[0] for c in CASES_14 + CASES_15) else LEGACY).items():
+            for k, v in (NEW_DEFAULTS if any(name == c[0] for c in CASES_14 + CASES_15 + CASES_16) else LEGACY).items():
                 setattr(s, k, v)
             for k, v in opts.items():
                 if k in POINTERS:
@@ -320,8 +365,86 @@ def _bake_checks(errors):
             if uvs != ["UVMap"]:
                 errors.append(f"bake: baked mesh has UV maps {uvs}, expected one named UVMap")
                 break
+        _bake_checks_16(errors, a, b, bake, bake_state)
     except Exception:
         errors.append(f"bake checks: {traceback.format_exc().strip().splitlines()[-1]}")
+
+
+def _bake_checks_16(errors, a, b, bake, bake_state):
+    """1.6.0: Shift+D copies, mesh and instance bakes tracked apart, kit edits, hidden collections, lit bakes."""
+    from .export import realized_mesh
+    from .runtime import invalidate_kits
+    vl = bpy.context.view_layer
+    sc = bpy.context.scene
+    # a Shift+D copy of a baked building has no bake of its own, and baking it leaves the original's alone
+    mine = a.aa_building.baked_obj
+    n_mine = len(mine.data.vertices)
+    dup = a.copy()
+    dup.data = a.data.copy()
+    for c in a.users_collection:
+        c.objects.link(dup)
+    dup.location.y -= 40.0
+    rebuild(dup, force=True)
+    if dup.aa_building.baked_obj is not None or bake_state(dup) != "none":
+        errors.append("bake: a Shift+D copy still points at the original's bake")
+    dup.aa_building.floors += 3
+    rebuild(dup)
+    if bake(dup) == mine or len(mine.data.vertices) != n_mine or bake_state(a) != "ok":
+        errors.append("bake: baking a Shift+D copy changed the original's bake")
+    # the mesh bake and the instance bake are tracked apart
+    vl.objects.active = a
+    bpy.ops.aab.bake(mode="INSTANCES", target="THIS", hide_live=False)
+    a.aa_building.floors += 1
+    rebuild(a)
+    vl.objects.active = a       # the bake made its baked copy active
+    bpy.ops.aab.bake(mode="INSTANCES", target="THIS", hide_live=False)
+    if bake_state(a) != "changed":
+        errors.append("bake: re-baking the instances hid that the mesh bake is out of date")
+    bpy.ops.aab.bake_changed()
+    if bake_state(a) != "ok":
+        errors.append("bake: Update Changed Bakes left a stale mesh bake")
+    # editing a kit module's geometry makes the bakes out of date
+    kit_col = a.aa_building.kit
+    me = next(o.data for o in kit_col.all_objects if o.type == "MESH" and o.users_collection[0].name.startswith("Window_200x320"))
+    me.vertices[0].co.z += 0.05
+    me.update()
+    invalidate_kits(kit_col.name)
+    rebuild(a)
+    if bake_state(a) != "changed":
+        errors.append("bake: editing a kit module's geometry didn't mark the bake as changed")
+    me.vertices[0].co.z -= 0.05
+    me.update()
+    invalidate_kits(kit_col.name)
+    rebuild(a)
+    # a building in an excluded collection still bakes / exports
+    hid = bpy.data.collections.new("AAB hidden test")
+    sc.collection.children.link(hid)
+    hid.objects.link(b)
+    for c in [c for c in b.users_collection if c != hid]:
+        c.objects.unlink(b)
+    vl.layer_collection.children[hid.name].exclude = True
+    try:
+        me2 = realized_mesh(bpy.context, b)
+        if len(me2.vertices) == 0:
+            errors.append("bake: a building in an excluded collection baked to an empty mesh")
+        bpy.data.meshes.remove(me2)
+    except Exception as e:
+        errors.append(f"bake: a building in an excluded collection can't be baked ({e})")
+    if b.name in sc.collection.objects:
+        errors.append("bake: the building was left linked to the scene collection")
+    vl.layer_collection.children[hid.name].exclude = False
+    # night lighting reaches both kinds of bake
+    a.aa_building.lit_windows = 1.0
+    rebuild(a)
+    lit_mesh = bake(a)
+    if not any(m and m.name.endswith("_Lit") for m in lit_mesh.data.materials):
+        errors.append("bake: a building with lit windows baked without the lit glass material")
+    vl.objects.active = a
+    bpy.ops.aab.bake(mode="INSTANCES", target="THIS", hide_live=False)
+    inst = a.aa_building.baked_col
+    if not any(o.instance_collection and o.instance_collection.name.startswith("AA Lit | ") for o in inst.all_objects):
+        errors.append("bake: lit windows baked as instances don't use their lit copies")
+    a.aa_building.lit_windows = 0.0
 
 
 def run_self_test(update=False, cases=None):
